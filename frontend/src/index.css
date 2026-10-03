@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    background-image:
+      radial-gradient(60rem 60rem at 85% -10%, rgba(107, 70, 193, 0.18), transparent 60%),
+      radial-gradient(50rem 50rem at -10% 10%, rgba(255, 107, 53, 0.14), transparent 55%);
+    background-attachment: fixed;
+  }
+  /* Visible focus for keyboard users (a11y) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-primary ring-offset-2 ring-offset-bg;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: rgba(255, 107, 53, 0.35);
+  }
+  /* Slim neon scrollbar */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(#ff6b35, #6b46c1);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0a0e27;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-surface/70 backdrop-blur-xl border border-white/10;
+  }
+  .neon-text {
+    @apply bg-gradient-to-r from-primary via-[#ff9a5a] to-secondary bg-clip-text text-transparent;
+  }
+  .card {
+    @apply glass rounded-card shadow-card;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-pill font-semibold
+      transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+      focus-visible:ring-2 focus-visible:ring-primary;
+  }
+  .btn-primary {
+    @apply btn px-5 py-2.5 bg-gradient-to-r from-primary to-secondary text-white
+      hover:shadow-glow active:scale-[0.98];
+  }
+  .btn-ghost {
+    @apply btn px-5 py-2.5 bg-white/5 text-ink border border-white/10 hover:bg-white/10;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-pill px-3 py-1 text-xs font-semibold;
+  }
+  .field {
+    @apply w-full rounded-card bg-surface-2/60 border border-white/10 px-4 py-3 text-ink
+      placeholder:text-muted/70 focus:border-primary/60 focus:bg-surface-2 transition;
+  }
+}
+
+@keyframes rain-fall {
+  0% { transform: translateY(-10vh); opacity: 0; }
+  10% { opacity: 0.7; }
+  100% { transform: translateY(110vh); opacity: 0; }
+}
