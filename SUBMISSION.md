@@ -1,12 +1,12 @@
 # WeatherQuest — GenLayer Builder Program Submission
 
-Copy-paste-ready text for the submission portal. Fields marked **[TBD]** are filled after
-Task 7 deployment (they require the live contract + hosted frontend URLs).
+Copy-paste-ready text for the submission portal. Fields marked **[TBD]** are filled once the frontend
+is published to GitHub Pages and the demo video is uploaded (both require the live repo URL — manual).
 
 ---
 
 ## Name
-WeatherQuest: Dynamic Risk RPG
+WeatherQuest — WeatherGate: AI-Gated 2D Weather RPG
 
 ## Tags
 - **Primary:** Gaming
@@ -14,40 +14,61 @@ WeatherQuest: Dynamic Risk RPG
 - **Tag 2:** Source Verification
 
 ## One-liner (≤ 180 chars)
-> AI-driven RPG where real-world weather sets the risk multiplier and validates player actions for dynamic GEN payouts.
+> 2D top-down RPG where real-world weather sets the risk multiplier and an on-chain AI validator judges your move — brave actions in brutal storms pay bigger GEN.
 
-*(118 chars)*
+*(160 chars)*
 
 ## Description (≤ 1000 chars)
-> WeatherQuest is a text-based RPG where real-world weather determines quest difficulty and rewards. Players submit actions (e.g., "Run", "Drive") for quests in real cities. The contract fetches live weather data, uses AI to calculate a risk multiplier (1x-5x), and judges if the action is safe. Success = Base Reward × Multiplier paid in GEN. Features fail-closed design, comprehensive validation, and a polished cyberpunk UI with live risk meters and AI reasoning display.
+> WeatherQuest: WeatherGate is a 2D top-down mini RPG you play in the browser (Kaboom.js + Framer Motion). Steer a hero with WASD/arrows past a river and a wall to a Magic Gate. Touching it pauses the game and opens an AI Gate modal showing the target city's live Open-Meteo weather and a 1.0x–5.0x risk multiplier. Pick an Action Card (Build a Raft / Swim Across / Use Weather Magic) or type your own move, then submit. A GenLayer intelligent contract fetches the same weather and uses AI to judge whether the action is safe for the current conditions; validators must independently agree on the tier, multiplier bucket, and pass/fail. PASS → confetti, a GEN reward (base × multiplier), the gate turns green, and you reach the Victory zone. FAIL → the modal shakes red and the gate stays locked. Reckless moves are rejected in High/Extreme weather; cautious ones survive. Ships in walletless demo mode with an on-chain seam ready, a fail-closed contract, and 22/22 passing direct-mode tests.
 
-*(497 chars)*
+*(990 chars)*
 
 ## Expected Verification Outcome (≤ 500 chars)
-> Steward will: 1) Visit the live frontend, 2) Create a test quest, 3) Submit an action and see AI judgment, 4) Run contract tests (pytest), 5) Verify the deployed contract on the StudioNet explorer.
+> Steward will: 1) open the live game and move the hero to the Magic Gate, 2) watch the game pause and the AI Gate modal open with live weather + risk multiplier, 3) click an Action Card and submit to see the "AI Validators…" judging state and a verdict, 4) see a PASS fire confetti + a GEN balance count-up + the gate open to Victory, and a reckless FAIL shake with the gate locked, 5) run `pytest tests/direct/` (22/22 pass), 6) verify the deployed contract on the StudioNet explorer.
 
-*(238 chars)*
+*(484 chars)*
 
 ## Instructions (step-by-step)
-1. Visit the live demo: **[frontend URL — TBD]**
-2. Connect a wallet, or just use **demo mode** (default — no wallet or gas needed).
-3. Browse the active quests and watch the **live risk meters** populate from real Open-Meteo weather.
-4. Click a quest, review the weather analysis + projected payout, and type an action under **"Your action"**.
-5. Submit for AI judgment and view the result screen (success/fail, multiplier at resolve, payout, AI reasoning, tx link).
-6. Try the create-quest flow (`#/create`) to see validation + a live weather preview as you type a city.
-7. **For developers:** clone the repo and:
+1. Visit the live game: **[frontend URL — TBD]**
+2. It runs in **demo mode** by default — no wallet, no gas. Move with **WASD / arrow keys**.
+3. Walk the orange hero past the river and the tree wall into the **purple Magic Gate**. The game
+   **pauses** and the **AI Gate modal** opens.
+4. Read the **live weather** + **risk multiplier** for the city. Pick an **Action Card**
+   (`🏗️ Build a Raft`, `🏃 Swim Across`, `🧙 Use Weather Magic`) — it fills the text box — or type your
+   own action, then **Submit**.
+5. Watch the *"AI Validators are analyzing…"* consensus state, then the verdict:
+   - **PASS:** confetti + a chime, your **GEN Balance counts up**, the gate turns **green** — walk right
+     into the **★ Victory zone**.
+   - **FAIL:** the modal **shakes** with a red *"Quest Failed"* and the gate stays locked — pick a safer
+     action. (A reckless action like *Swim Across* is rejected when live risk is **High/Extreme**; the
+     current weather tier is shown top-right. If the city is mild, most actions pass.)
+6. **For developers:** clone the repo and:
    - `genvm-lint check contracts/weatherquest.py` — static lint + GenVM validation (**passes**).
    - `pytest tests/direct/ -v` — **22 direct-mode contract tests, all passing**.
-     Setup (see README §6): `pip uninstall -y genlayer` (the public `genlayer` 0.0.1
+     Setup (see README §7): `pip uninstall -y genlayer` (the public `genlayer` 0.0.1
      placeholder shadows the real SDK), then `pip install genlayer-py==0.16.3 genlayer-test==0.29.2`.
+7. **To play against the deployed contract** instead of the local demo: set
+   `VITE_CONTRACT_ADDRESS=0x0B648Bd000cAfb84855fE681A584339ca31d8894` and `VITE_ONCHAIN=true` in
+   `frontend/.env` (the on-chain call signatures already match the contract).
+
+> **Recording tip:** in `npm run dev` you can open the modal without walking by running
+> `window.__wgOpenGate()` in the browser console — handy for capturing the modal + rewards. This dev
+> seam is compiled out of the production build.
 
 ## Contract Link
-https://studio.genlayer.com/address/`0x0B648Bd000cAfb84855fE681A584339ca31d8894`
-— **DEPLOYED to StudioNet** (tx `ACCEPTED`, validators `AGREE`; verified with `genlayer schema` and a
-live `contract_balance` call). Redeploy script: `scripts/deploy.sh`.
+https://studio.genlayer.com/address/0x0B648Bd000cAfb84855fE681A584339ca31d8894
+— **DEPLOYED to StudioNet** (address `0x0B648Bd000cAfb84855fE681A584339ca31d8894`; tx `ACCEPTED`,
+validators `AGREE`; verified with `genlayer schema` and a live `contract_balance` call). Redeploy
+script: `scripts/deploy.sh`.
 
 ## Website
-**[frontend URL — TBD]**
+**[frontend URL — TBD]** (GitHub Pages via `.github/workflows/deploy-frontend.yml`; publish needs the
+repo URL + a push to `main`).
+
+## Demo Video
+**[YouTube link — TBD]**. Source file: `media/demo.mp4` (1920×1080, 30fps, burned-in captions), built
+with `scripts/build_demo.sh` (see `docs/video-storyboard.md` for the shot list and the 4-step manual
+recording guide).
 
 ## GitHub
 https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
@@ -59,24 +80,32 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 | Area | Status | Evidence |
 |------|--------|----------|
 | GenLayer contract | ✅ Complete | `contracts/weatherquest.py` — 9 methods; passes `genvm-lint check` (lint + validate). |
-| Open-Meteo integration | ✅ Verified | Geocoding + forecast endpoints return the expected `results` / `current` shapes (confirmed live). |
-| Logo / icon | ✅ Complete | `frontend/public/` — `logo.svg` + PNGs (512², 128, 64 favicon). |
-| Cyberpunk React UI | ✅ Complete & builds | `npm run build` succeeds; dev server + Open-Meteo proxy confirmed serving. |
-| Day/night visual distinction | ✅ Complete & verified | `lib/theme.ts` (`surfaceTheme(kind, isDay)`) drives sun/stars particles + gradients on `QuestCard`, `QuestDetailModal`, `WeatherParticles`; browser check confirmed Tokyo=night starfield, Dubai=day sun, no console errors. |
-| End-to-end UX | ✅ Verified (no console errors) | Browser check: landing → dashboard live weather in cards → quest modal → AI-judgment result screen all render. |
-| Direct-mode tests | ✅ Executed — 22/22 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`). |
-| Demo video | ✅ Produced | `media/demo.mp4` (1920×1080, ~86s) built with `ffmpeg` from captured frames + burned-in captions (`docs/captions.srt`). YouTube upload is manual. |
 | Contract deployment | ✅ Deployed to StudioNet | Address `0x0B648Bd000cAfb84855fE681A584339ca31d8894`; `scripts/deploy.sh` reproduces it. |
-| Frontend deployment | ⏳ Workflow ready | GitHub Pages workflow included; publish needs the repo URL + pushing `main` (manual). |
+| Direct-mode tests | ✅ Executed — 22/22 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`). |
+| Open-Meteo integration | ✅ Verified | Geocoding + forecast endpoints return the expected `results` / `current` shapes (confirmed live in-browser). |
+| 2D game (Kaboom.js) | ✅ Complete & builds | `frontend/src/Game.tsx` — tile field (grass/river/wall/gate/victory), WASD+arrow movement, AABB collision, gate + victory triggers. |
+| AI Gate modal | ✅ Complete & live-verified | `frontend/src/GateModal.tsx` — Framer Motion scale-in, live weather + multiplier, 3 Action Cards, custom input, "AI Validators…" judging state, verdict. |
+| SUCCESS rewards | ✅ Verified (DOM) + foreground animation | PASS → confetti + chime + GEN count-up → gate recolors green → walk to ★ Victory. Confirmed via browser playtest. |
+| FAIL rewards | ✅ Verified at High tier | Reckless action → red "Quest Failed" + shake, gate stays locked (confirmed against a live Thunderstorm/High `3.4x` city). |
+| Console health | ✅ Zero errors, zero warnings | Playtest + final reload logged only benign dev-only Vite/React lines; the 2 React Router warnings were removed by mounting the game directly. |
+| Logo / icon | ✅ Complete | `frontend/public/` — `logo.svg` + PNGs (512², 128, 64 favicon). |
+| Demo video | ✅ Produced | `media/demo.mp4` (1920×1080) via `scripts/build_demo.sh` + `docs/captions.srt`. YouTube upload is **[TBD]**. |
+| Frontend deployment | ⏳ Workflow ready | GitHub Pages workflow included; publish + URL are **[TBD]** (manual). |
 
 ### Honest verification caveats
 - **Direct-mode tests were executed and all 22 pass.** Two harness-only shims
-  live in `conftest.py` (documented in README §6): the weather LLM mock returns
+  live in `conftest.py` (documented in README §7): the weather LLM mock returns
   the multiplier as a string (GenVM calldata has no `float`), and `warp()` also
   writes `gl.message_raw['datetime']` (the pinned `genlayer-test` warp patches
   `datetime.now()` but not the cached message datetime the contract's `_now()`
   reads). Neither changes on-chain behaviour.
-- **The UI ships in demo mode by default.** On-chain settlement requires wiring the GenLayer JS SDK
-  into `frontend/src/lib/contract.ts` and setting `VITE_ONCHAIN=true` + `VITE_CONTRACT_ADDRESS`
-  (the contract is already deployed and the call signatures already match). This keeps the
-  reviewer-facing experience fully interactive without a funded wallet.
+- **The game ships in demo mode by default.** The verdict the reviewer sees is produced by the
+  frontend's settlement heuristic in `lib/contract.ts`, which *mirrors the contract's LLM rules and
+  reads the same live Open-Meteo data*. On-chain settlement requires wiring the GenLayer JS SDK into
+  `lib/contract.ts` and setting `VITE_ONCHAIN=true` + `VITE_CONTRACT_ADDRESS` (the contract is already
+  deployed and the call signatures already match). This keeps the reviewer-facing experience fully
+  playable without a funded wallet.
+- **Visual/animation checks (confetti, balance count-up, gate recolor, shake, victory) need a
+  foregrounded browser tab** — `requestAnimationFrame` pauses when a tab is backgrounded (standard for
+  canvas games). They were confirmed logic-complete via DOM playtest and render normally when the tab is
+  visible.

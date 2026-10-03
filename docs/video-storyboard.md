@@ -1,37 +1,69 @@
-# WeatherQuest — Demo Video Storyboard (Task 4)
+# WeatherGate — Demo Video Storyboard
 
-Target: **60–90s**, **1920×1080**, **MP4 (H.264)**, **burn-in captions** (white text, black outline,
-bottom center). Record the **browser UI**, not a terminal.
+Target: **~84s**, **1920×1080**, **MP4 (H.264)**, **30 fps**, **burn-in captions** (white text, black
+outline, bottom center — see `captions.srt`). Record the **browser game**, not a terminal. The game's
+selling point is *motion* (walking, confetti, the balance count-up, the fail shake), so a real screen
+recording beats a slideshow of stills — do that first, and use `scripts/build_demo.sh` to normalize +
+add captions.
 
-## Recording
+## Option A — Record the live game, then caption it (recommended)
 
 ```bash
-# Option A — ffmpeg X11 grab (Linux desktop), then burn captions:
-ffmpeg -f x11grab -video_size 1920x1080 -framerate 30 -i :1.0+0,0 \
-       -t 90 raw.mp4
-ffmpeg -i raw.mp4 -vf "subtitles=captions.srt:force_style='FontName=Inter,FontSize=22,\
-PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=0,\
-Alignment=2,MarginV=40'" -c:v libx264 -preset slow -crf 20 weatherquest-demo.mp4
+# 1) Record your screen while playing (choose ONE):
+#    • ffmpeg X11 grab (Linux desktop):
+ffmpeg -f x11grab -video_size 1920x1080 -framerate 30 -i :1.0+0,0 -t 90 docs/raw.mp4
+#    • or a GUI tool: OBS Studio, Screenity (Chrome ext.), LICEcap, or macOS Cmd+Shift+5 → save .mov.
 
-# Option B — Chrome headless video (or a tool like Screenity/LICEcap) then the same caption pass.
+# 2) Normalize to 1080p30 + burn the captions into media/demo.mp4:
+#    (build_demo.sh auto-detects docs/raw.mp4)
+./scripts/build_demo.sh
 ```
 
-> `docs/captions.srt` next to this file already contains the timed caption track below. Adjust the
-> `[mm:ss]` markers to your real recording, or record in the same beats so the timing lines up.
+## Option B — Assemble a narrated slideshow from captured frames
 
-## Shot list (matches the submission scenario)
+Capture one PNG per storyboard shot into `docs/frames/` (`01.png`, `02.png`, … in play order), then:
+
+```bash
+FRAMES_DIR=docs/frames SHOT_SECONDS=8 ./scripts/build_demo.sh
+```
+
+Or drive exact per-shot timings with a manifest (`SECONDS  path`, one per line) at `docs/demo.manifest`.
+
+## The 4-step manual recording guide
+
+1. **Start the game.** `cd frontend && npm run dev`, open the printed `http://localhost:517…/` URL in a
+   **foreground** browser window (the canvas + confetti freeze if the tab is backgrounded). Set the
+   window to 1080p. Start your screen recorder.
+2. **Walk to the gate.** Press **W/↑** to line up with the gap, then **D/→** to cross the field and bump
+   into the **purple Magic Gate**. The game pauses and the modal opens. (Recording shortcut: run
+   `window.__wgOpenGate()` in the DevTools console to pop the modal instantly without walking.)
+3. **Show the two outcomes.**
+   - **SUCCESS:** click **`🏗️ Build a Raft`** (it fills the input), **Submit**, let *"AI Validators are
+     analyzing…"* show, and on **`✅ Quest Passed`** click **Claim** — capture the **confetti**, the
+     **GEN Balance counting up** (top-left), the **gate turning green**, then **walk right into the ★
+     Victory zone** for the second burst.
+   - **FAIL:** reopen the gate and submit a reckless action (e.g. **`🏃 Swim Across`**) — the modal
+     **shakes** red with *"Quest Failed"* and the gate stays locked. (A fail only triggers when the live
+     risk tier top-right reads **High/Extreme**; to force one, temporarily set `const CITY` in
+     `frontend/src/App.tsx` to a currently-stormy city, record the fail, then revert it to `"London"`.)
+4. **Stop, caption, upload.** Stop recording → run `./scripts/build_demo.sh` to produce
+   `media/demo.mp4` → upload to YouTube and paste the link into the **Demo Video** field of
+   `SUBMISSION.md` (currently `[TBD]`).
+
+## Shot list (matches `captions.srt`)
 
 | # | Time | Shot | Caption |
 |---|------|------|---------|
-| 1 | 0:00–0:08 | Landing hero, particles cycling storm→rain→snow | WeatherQuest: AI-Verified Gaming Bounties |
-| 2 | 0:08–0:16 | Scroll "How a quest resolves" 4-step cards | Real-time weather data determines risk multipliers |
-| 3 | 0:16–0:26 | Dashboard — cards populate live weather + risk meters | Each bounty reads live Open-Meteo weather |
-| 4 | 0:26–0:36 | Open a **London** quest (Rain, ~1.5x), read reasoning | AI judges if your action is safe for the conditions |
-| 5 | 0:36–0:44 | Submit "Run" → Success → payout scales | Higher risk = Higher reward |
-| 6 | 0:44–0:56 | Open **Reykjavik** (Blizzard, ~4.0x) → submit "Run" → FAIL | Reckless moves get rejected |
-| 7 | 0:56–1:08 | Same quest → submit "Snowmobile" → SUCCESS huge 4x payout | Adapt to the weather, win big |
-| 8 | 1:08–1:18 | Create Quest flow: type city → live preview meter | Post a bounty, escrow GEN on-chain |
-| 9 | 1:18–1:26 | Outro: logo + GitHub link | Built on GenLayer — Trustless Adjudication |
+| 1 | 0:00–0:08 | Title + full field (grass, river, wall, purple gate, green victory zone) | WeatherGate: a 2D RPG where real weather gates your progress |
+| 2 | 0:08–0:16 | Hero sliding around under WASD/arrow control | Move your hero with WASD or the arrow keys |
+| 3 | 0:16–0:24 | Bumping into the river and the tree wall (they block) | A river and a wall block the path to the Magic Gate |
+| 4 | 0:24–0:32 | Touch the gate → game pauses, modal scales in | Touch the gate - the game pauses and the AI challenge opens |
+| 5 | 0:32–0:41 | Close-up of the modal's live weather + risk multiplier badge | Live Open-Meteo weather sets the risk multiplier |
+| 6 | 0:41–0:50 | Click an Action Card → it fills the custom input | Choose an Action Card, or type your own move |
+| 7 | 0:50–0:58 | Judging state: pulsing 🛰️ "AI Validators are analyzing…" | AI Validators are judging your action against the weather |
+| 8 | 0:58–1:07 | PASS → confetti + balance count-up + gate turns green + reach ★ Victory | Pass - confetti, a GEN reward, and the gate swings open |
+| 9 | 1:07–1:15 | FAIL → modal shakes red, gate stays locked | Reckless in bad weather? The verdict fails and the gate stays locked |
+| 10 | 1:15–1:24 | Outro: logo / GitHub / StudioNet address | Built on GenLayer - trustless, weather-driven adjudication |
 
-Keep the pace ~1 beat per 8–10s for a ~85s cut. The demo runs in **demo mode** by default, so no
-wallet/gas is needed for the recording; every multiplier shown is derived from real live weather.
+> The demo runs in **demo mode** by default, so no wallet/gas is needed for recording; every multiplier
+> shown is derived from real live weather. Keep the pace ~1 beat per 8–9s for an ~84s cut.

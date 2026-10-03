@@ -1,18 +1,14 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { HashRouter } from "react-router-dom";
 import App from "./App";
-import { AppProvider } from "./context/AppContext";
 import "./index.css";
 
-// HashRouter keeps deep links working on static hosts (GitHub Pages) where the
-// app is served with a relative base and there is no server to rewrite routes.
+// The shipped experience is the WeatherGate 2D game. It manages its own state,
+// so it mounts directly — no router and no legacy quest-app context provider are
+// needed (the old dashboard modules under src/pages & src/components remain in
+// the repo but are not wired into the game build).
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <HashRouter>
-      <AppProvider>
-        <App />
-      </AppProvider>
-    </HashRouter>
+    <App />
   </React.StrictMode>
 );
