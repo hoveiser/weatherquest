@@ -1,7 +1,24 @@
 """Shared fixtures and mock helpers for WeatherQuest direct-mode tests."""
 import json
+import sys
 
 GEN = 10**18
+
+
+def warp(direct_vm, timestamp):
+    """Advance the VM clock for time-based reverts.
+
+    ``direct_vm.warp`` patches ``datetime.now`` and stores the timestamp, but
+    the direct-mode harness does not propagate it into ``gl.message_raw``
+    (only sender/origin are refreshed). The contract reads its deterministic
+    transaction clock from ``gl.message_raw['datetime']`` — so we bridge that
+    gap here without touching the contract. Mirrors the harness's own guard by
+    only mutating the already-imported ``genlayer.gl`` module.
+    """
+    direct_vm.warp(timestamp)
+    gl_mod = sys.modules.get("genlayer.gl")
+    if gl_mod is not None and getattr(gl_mod, "message_raw", None) is not None:
+        gl_mod.message_raw["datetime"] = timestamp
 
 LONDON_GEOCODE = {
     "results": [
@@ -40,9 +57,12 @@ def mock_weather(direct_vm, city="London", current=None):
 
 
 def mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium", reasoning="Windy."):
+    # The multiplier is sent as a JSON string on purpose: GenVM calldata has no
+    # float type, so the direct-mode LLM mock transport cannot round-trip a raw
+    # float. The contract coerces it with float(str(...)) regardless.
     direct_vm.mock_llm(
         r".*risk engine of a weather-based bounty game.*",
-        json.dumps({"multiplier": multiplier, "risk_tier": tier, "reasoning": reasoning}),
+        json.dumps({"multiplier": str(multiplier), "risk_tier": tier, "reasoning": reasoning}),
     )
 
 
@@ -53,13 +73,22 @@ def mock_llm_judgment(direct_vm, success=True, reasoning="Safe enough."):
     )
 
 
-def deploy(direct_deploy, direct_vm, direct_alice):
-    """Deploy the contract and fund the house so >1x payouts can settle."""
+def deploy(direct_deploy, direct_vm, direct_alice, house=1000):
+    """Deploy the contract and fund the house so >1x payouts can settle.
+
+    NOTE: direct mode exposes a contract's GEN through its *native* balance
+    (``self.balance`` -> WASI ``get_self_balance``), which is backed by the VM
+    balance map. That map is only mutated by ``deal()`` — payable calls and
+    ``emit_transfer`` do not move native GEN in direct mode. We therefore seed
+    the deployed contract's native balance directly. (Full native-transfer
+    accounting is covered by integration tests against a real environment.)
+    """
     contract = direct_deploy("contracts/weatherquest.py")
     direct_vm.sender = direct_alice
-    direct_vm.value = 1000 * GEN
+    direct_vm.value = house * GEN
     contract.deposit()
     direct_vm.value = 0
+    direct_vm.deal(direct_vm._contract_address, house * GEN)
     return contract
 
 

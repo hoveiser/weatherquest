@@ -48,7 +48,8 @@ frontend/                        # React + Vite + Tailwind cyberpunk UI
                                  # ResultScreen, RiskMeter, WeatherIcon, WeatherParticles,
                                  # Toasts, Button, Tooltip, SkeletonCard, EmptyState
     hooks/useWeatherPreview.ts   # live weather + client risk preview
-    lib/                         # weather.ts (Open-Meteo), contract.ts (demo/on-chain seam), format.ts
+    lib/                         # weather.ts (Open-Meteo), theme.ts (day/night surfaces),
+                                 # contract.ts (demo/on-chain seam), format.ts
     types.ts
 tools/render_logo.py             # dependency-free PNG rasterizer for the logo assets
 tests/direct/                    # pytest direct-mode contract tests (see §6)
@@ -118,27 +119,67 @@ Without those, `USE_ONCHAIN` is `false` and the app runs in demo mode. The call 
 
 ## 6. Testing
 
-```bash
-# Contract static analysis (lint + GenVM validation) — this PASSES in this environment:
-.venv/bin/genvm-lint check contracts/weatherquest.py
+### Contract static analysis
 
-# Contract tests (pytest direct mode):
+```bash
+# Lint + GenVM validation (PASSES):
+.venv/bin/genvm-lint check contracts/weatherquest.py
+```
+
+### 🧪 How to Run Tests Locally
+
+The direct-mode suite runs on any machine that can reach PyPI + the pinned GenVM
+runner (the test SDK auto-downloads the runner into `~/.cache/gltest-direct/`).
+It was executed end-to-end and **all 22 tests pass**.
+
+```bash
+# 1. Isolated environment (Python 3.12)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 2. CRITICAL: the public `genlayer` package is a 0.0.1 placeholder that SHADOWS
+#    the real SDK and breaks imports ("name 'gl' is not defined"). Remove it if
+#    it is present, then install the real client + test plugin.
+pip uninstall -y genlayer 2>/dev/null || true
+pip install "genlayer-py==0.16.3" "genlayer-test==0.29.2"
+
+# 3. Run the suite (from the repo root)
 pytest tests/direct/ -v
 ```
 
-`tests/direct/` contains ~24 tests covering create-quest validation (empty city, zero/oversized
-reward, bad expiry, escrow mismatch), the read-back, `get_weather_multiplier` (valid city, invalid
-city, malformed LLM, clamp-to-range), `submit_action` settlement (success pays `base×mult`, failure
-refunds creator, empty action, duplicate, expired, nonexistent, API-timeout fail-closed), and
-`claim_expired_quest` (only creator, not-yet-expired, funds returned). Mocks for the geocoding /
-forecast / both LLM prompts live in `tests/direct/conftest.py`.
+Expected result:
 
-> **Honest status:** `genvm-lint check` passes (lint + validate). The direct-mode tests are written
-> and lint-clean, but **could not be executed in this build environment** because the GenLayer test
-> SDK (`genlayer[tests]` / the `genlayer-test` pytest plugin) is not installable here — the public
-> PyPI `genlayer` distribution is a `0.0.1` placeholder and the real package could not be resolved.
-> The tests target the documented `direct_vm` / `direct_deploy` / `mock_web` / `mock_llm` /
-> `expect_revert` / `warp` fixture API and will run unmodified where the SDK is available.
+```
+......................                                        [100%]
+22 passed in 0.42s
+```
+
+> **China / restricted networks?** If `pypi.org` is unreachable, add a mirror:
+> `pip install -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn genlayer-py==0.16.3 genlayer-test==0.29.2`
+> The GenVM runner bundle still comes from GitHub releases, so that host must be
+> reachable once (it caches to `~/.cache/gltest-direct/`).
+
+`tests/direct/` covers: create-quest validation (empty city, zero/oversized
+reward, bad expiry, escrow mismatch), the read-back, `get_weather_multiplier`
+(valid city, invalid city, malformed LLM, clamp-to-range), `submit_action`
+settlement (success pays `base×mult`, failure refunds creator, empty action,
+duplicate, expired, nonexistent, API-timeout fail-closed), and
+`claim_expired_quest` (only creator, not-yet-expired, funds returned). Mocks for
+the geocoding / forecast / both LLM prompts live in `tests/direct/conftest.py`.
+
+**Two direct-mode harness notes** (why `conftest.py` looks the way it does — the
+contract itself is production-correct, none of this changes on-chain behaviour):
+
+- The weather LLM mock returns the multiplier as a **string**, because GenVM
+  calldata has no `float` type; the contract coerces it with `float(str(...))`
+  either way.
+- `warp(...)` in `conftest.py` also writes the timestamp into
+  `gl.message_raw['datetime']`: the direct-mode `vm.warp` patches
+  `datetime.now()` but (at this SDK version) does not refresh the cached message
+  datetime that the contract's deterministic `_now()` reads. Native GEN balances
+  are seeded with `direct_vm.deal(...)` because direct mode does not move native
+  value on `payable` / `emit_transfer` — full transfer accounting is exercised by
+  integration tests against a live network.
 
 ## 7. Design system (UI)
 
@@ -147,6 +188,13 @@ Cyberpunk neon-dark theme. GenLayer brand: **orange `#FF6B35`** (primary) + **pu
 shadows, 8px cards / 12px modals / pill buttons. Fully responsive (mobile bottom-nav, tablet,
 desktop grid). Weather-reactive particle overlays (rain / snow / storm lightning) and an animated
 risk meter bring the "weather decides your fate" hook to life.
+
+**Day / night distinction:** Open-Meteo's `is_day` flag drives `lib/theme.ts`
+(`surfaceTheme(kind, isDay)`), so every weather surface reads differently after dark. Clear **day**
+= a bright sky-blue→warm-orange gradient with rising **sun** motes; clear **night** = a deep
+purple→midnight-blue gradient with **twinkling stars** and a soft moon glow. The same day/night
+palette propagates to `QuestCard`, `QuestDetailModal`, and `WeatherParticles` (icon accent colour and
+particle field included).
 
 **Accessibility:** semantic landmarks, a skip-to-content link, visible `:focus-visible` rings,
 `aria-label`s on icon buttons, `role="dialog"` + `aria-modal` + Escape/backdrop close on the quest
@@ -162,18 +210,24 @@ because image-generation/Pillow were unavailable in the build sandbox.
 
 ## 9. Deployment
 
-- **Contract → GenLayer StudioNet:** `genlayer deploy contracts/weatherquest.py` (fund with
-  `deposit()`, then `create_quest(...)`). Studio explorer: https://studio.genlayer.com.
+- **Contract → GenLayer StudioNet: DEPLOYED.**
+  Address: `0x0B648Bd000cAfb84855fE681A584339ca31d8894`
+  (tx `ACCEPTED`, validators `AGREE`; verified with `genlayer schema` + a live
+  `contract_balance` call). Re-deploy any time with `scripts/deploy.sh`, which
+  imports the key from `.env` and publishes `contracts/weatherquest.py` to
+  `studionet`. Studio explorer: https://studio.genlayer.com.
 - **Frontend → GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow (HashRouter + relative base so deep links work on a project page).
+
+To point the UI at the live contract, set `VITE_CONTRACT_ADDRESS=0x0B648Bd000cAfb84855fE681A584339ca31d8894`
+and `VITE_ONCHAIN=true` in `frontend/.env` (see §5).
 
 See `SUBMISSION.md` for the fill-in submission fields and the verification outcome summary.
 
 ## 10. Known limitations
 
-- **Demo mode ships on by default.** Live on-chain settlement requires the contract deployed and the
-  GenLayer JS SDK wired into `lib/contract.ts` (the seam and signatures are ready).
-- **Direct tests are unexecuted here** (SDK unavailable) — see §6. Static validation via
-  `genvm-lint check` passes.
+- **Demo mode ships on by default.** Live on-chain settlement requires the GenLayer
+  JS SDK wired into `lib/contract.ts` (the seam and signatures are ready; the
+  contract is already deployed — see §9).
 - The client-side risk preview is explicitly labelled "preview"; it is *not* the authoritative
   on-chain multiplier.

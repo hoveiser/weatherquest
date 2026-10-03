@@ -37,10 +37,14 @@ WeatherQuest: Dynamic Risk RPG
 6. Try the create-quest flow (`#/create`) to see validation + a live weather preview as you type a city.
 7. **For developers:** clone the repo and:
    - `genvm-lint check contracts/weatherquest.py` — static lint + GenVM validation (**passes**).
-   - `pytest tests/direct/ -v` — ~24 direct-mode contract tests (see note below).
+   - `pytest tests/direct/ -v` — **22 direct-mode contract tests, all passing**.
+     Setup (see README §6): `pip uninstall -y genlayer` (the public `genlayer` 0.0.1
+     placeholder shadows the real SDK), then `pip install genlayer-py==0.16.3 genlayer-test==0.29.2`.
 
 ## Contract Link
-**[TBD after StudioNet deployment]** — https://studio.genlayer.com/address/`<contract_address>`
+https://studio.genlayer.com/address/`0x0B648Bd000cAfb84855fE681A584339ca31d8894`
+— **DEPLOYED to StudioNet** (tx `ACCEPTED`, validators `AGREE`; verified with `genlayer schema` and a
+live `contract_balance` call). Redeploy script: `scripts/deploy.sh`.
 
 ## Website
 **[frontend URL — TBD]**
@@ -58,19 +62,21 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 | Open-Meteo integration | ✅ Verified | Geocoding + forecast endpoints return the expected `results` / `current` shapes (confirmed live). |
 | Logo / icon | ✅ Complete | `frontend/public/` — `logo.svg` + PNGs (512², 128, 64 favicon). |
 | Cyberpunk React UI | ✅ Complete & builds | `npm run build` succeeds; dev server + Open-Meteo proxy confirmed serving. |
+| Day/night visual distinction | ✅ Complete & verified | `lib/theme.ts` (`surfaceTheme(kind, isDay)`) drives sun/stars particles + gradients on `QuestCard`, `QuestDetailModal`, `WeatherParticles`; browser check confirmed Tokyo=night starfield, Dubai=day sun, no console errors. |
 | End-to-end UX | ✅ Verified (no console errors) | Browser check: landing → dashboard live weather in cards → quest modal → AI-judgment result screen all render. |
-| Direct-mode tests | ⚠️ Written, not executed here | See honest note below. |
-| Demo video | ⏳ Manual | Needs a screen recording; captions + storyboard provided (`docs/video-storyboard.md`). |
-| Deployment | ⏳ Ready | GitHub Pages workflow included; StudioNet contract deploy is a manual `genlayer` CLI step. |
+| Direct-mode tests | ✅ Executed — 22/22 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`). |
+| Demo video | ✅ Produced | `media/demo.mp4` (1920×1080, ~86s) built with `ffmpeg` from captured frames + burned-in captions (`docs/captions.srt`). YouTube upload is manual. |
+| Contract deployment | ✅ Deployed to StudioNet | Address `0x0B648Bd000cAfb84855fE681A584339ca31d8894`; `scripts/deploy.sh` reproduces it. |
+| Frontend deployment | ⏳ Workflow ready | GitHub Pages workflow included; publish needs the repo URL + pushing `main` (manual). |
 
 ### Honest verification caveats
-- **Contract tests are written but were not executed in this build environment.** The GenLayer test
-  SDK (`genlayer[tests]` / `genlayer-test` plugin) is not installable here — the public PyPI
-  `genlayer` distribution is a `0.0.1` placeholder and the real package could not be resolved
-  (intermittent DNS to `files.pythonhosted.org`). The tests target the documented fixture API
-  (`direct_vm`, `direct_deploy`, `mock_web`, `mock_llm`, `expect_revert`, `warp`) and run unmodified
-  where the SDK is available.
-- **The UI ships in demo mode by default.** On-chain settlement requires deploying the contract to
-  StudioNet and wiring the GenLayer JS SDK into `frontend/src/lib/contract.ts` (the on-chain seam +
-  call signatures already match the contract). This keeps the reviewer-facing experience fully
-  interactive without a funded wallet.
+- **Direct-mode tests were executed and all 22 pass.** Two harness-only shims
+  live in `conftest.py` (documented in README §6): the weather LLM mock returns
+  the multiplier as a string (GenVM calldata has no `float`), and `warp()` also
+  writes `gl.message_raw['datetime']` (the pinned `genlayer-test` warp patches
+  `datetime.now()` but not the cached message datetime the contract's `_now()`
+  reads). Neither changes on-chain behaviour.
+- **The UI ships in demo mode by default.** On-chain settlement requires wiring the GenLayer JS SDK
+  into `frontend/src/lib/contract.ts` and setting `VITE_ONCHAIN=true` + `VITE_CONTRACT_ADDRESS`
+  (the contract is already deployed and the call signatures already match). This keeps the
+  reviewer-facing experience fully interactive without a funded wallet.
