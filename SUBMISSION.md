@@ -19,12 +19,12 @@ WeatherQuest — WeatherGate: AI-Gated 2D Weather RPG
 *(160 chars)*
 
 ## Description (≤ 1000 chars)
-> WeatherQuest: WeatherGate is a 2D top-down mini RPG you play in the browser (Kaboom.js + Framer Motion). Steer a hero with WASD/arrows past a river and a wall to a Magic Gate. Touching it pauses the game and opens an AI Gate modal showing the target city's live Open-Meteo weather and a 1.0x–5.0x risk multiplier. Pick an Action Card (Build a Raft / Swim Across / Use Weather Magic) or type your own move, then submit. A GenLayer intelligent contract fetches the same weather and uses AI to judge whether the action is safe for the current conditions; validators must independently agree on the tier, multiplier bucket, and pass/fail. PASS → confetti, a GEN reward (base × multiplier), the gate turns green, and you reach the Victory zone. FAIL → the modal shakes red and the gate stays locked. Reckless moves are rejected in High/Extreme weather; cautious ones survive. Ships in walletless demo mode with an on-chain seam ready, a fail-closed contract, and 22/22 passing direct-mode tests.
+> WeatherQuest: WeatherGate is a 2D top-down mini RPG you play in the browser (Kaboom.js + Framer Motion). Steer a hero with WASD/arrows past a river and a wall to a Magic Gate. Touching it pauses the game and opens an AI Gate modal showing the target city's live Open-Meteo weather and a 1.0x–5.0x risk multiplier. Pick an Action Card (Build a Raft / Swim Across / Use Weather Magic) or type your own move, then submit. A GenLayer intelligent contract fetches the same weather and uses AI to judge whether the action is safe for the current conditions; validators must independently agree on the tier, multiplier bucket, and pass/fail. PASS → confetti, a GEN reward (base × multiplier), the gate turns green, and you reach the Victory zone. FAIL → the modal shakes red and the gate stays locked. Reckless moves are rejected in High/Extreme weather; cautious ones survive. Ships in walletless demo mode with an on-chain seam ready, a fail-closed contract, and 36/36 passing direct-mode tests.
 
 *(990 chars)*
 
 ## Expected Verification Outcome (≤ 500 chars)
-> Steward will: 1) open the live game and move the hero to the Magic Gate, 2) watch the game pause and the AI Gate modal open with live weather + risk multiplier, 3) click an Action Card and submit to see the "AI Validators…" judging state and a verdict, 4) see a PASS fire confetti + a GEN balance count-up + the gate open to Victory, and a reckless FAIL shake with the gate locked, 5) run `pytest tests/direct/` (22/22 pass), 6) verify the deployed contract on the StudioNet explorer.
+> Steward will: 1) open the live game and move the hero to the Magic Gate, 2) watch the game pause and the AI Gate modal open with live weather + risk multiplier, 3) click an Action Card and submit to see the "AI Validators…" judging state and a verdict, 4) see a PASS fire confetti + a GEN balance count-up + the gate open to Victory, and a reckless FAIL shake with the gate locked, 5) run `pytest tests/direct/` (36/36 pass), 6) verify the deployed contract on the StudioNet explorer.
 
 *(484 chars)*
 
@@ -44,26 +44,33 @@ WeatherQuest — WeatherGate: AI-Gated 2D Weather RPG
      current weather tier is shown top-right. If the city is mild, most actions pass.)
 6. **For developers:** clone the repo and:
    - `genvm-lint check contracts/weatherquest.py` — static lint + GenVM validation (**passes**).
-   - `pytest tests/direct/ -v` — **22 direct-mode contract tests, all passing**.
+   - `pytest tests/direct/ -v` — **36 direct-mode contract tests, all passing**.
      Setup (see README §7): `pip uninstall -y genlayer` (the public `genlayer` 0.0.1
      placeholder shadows the real SDK), then `pip install genlayer-py==0.16.3 genlayer-test==0.29.2`.
 7. **To play against the deployed contract** instead of the local demo: click **"Connect GenLayer
    Wallet"** in the game (uses the `genlayer-js` SDK + an injected EIP-1193 wallet such as MetaMask),
-   or set `VITE_CONTRACT_ADDRESS=0xA027635817B54e9b54dC0944b511399140EA6Ed9` and `VITE_ONCHAIN=true`
+   or set `VITE_CONTRACT_ADDRESS=0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694` and `VITE_ONCHAIN=true`
    in `frontend/.env` (the on-chain call signatures already match the contract).
 
 > **Recording tip:** in `npm run dev` you can drive the campaign from the browser console with the
-> dev-only seams `window.__wgOpenGate()` (open the AI challenge without walking), `window.__wgWin()`
+> dev-only seams `window.__wgOpenGate(steps)` (open the AI challenge without walking, optionally
+> forcing a step count to trigger an efficiency tier), `window.__wgWin()`
 > (fire the victory → "Level Up!" auto-advance), and `window.__wgPlay(n)` (jump to level n). These
 > are compiled out of the production build.
 
 ## Contract Link
-https://studio.genlayer.com/address/0xA027635817B54e9b54dC0944b511399140EA6Ed9
-— **DEPLOYED to StudioNet** (address `0xA027635817B54e9b54dC0944b511399140EA6Ed9`; tx
-`0xec301940…231266bf5`, `ACCEPTED`, 5/5 validators). Now includes the **progressive campaign**
+https://studio.genlayer.com/address/0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694
+— **DEPLOYED to StudioNet** (address `0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694`; tx
+`0x900a826c…3b281e`, `ACCEPTED`, 5 validators — 3 AGREE / 2 IDLE). Now includes the **progressive campaign**
 surface: `complete_level`, `has_completed_level`, `get_completed_levels`, `get_level_reward`, and
 `campaign_progress` (replaying a conquered `(wallet, level)` is rejected on-chain as anti-cheat).
-The marketplace methods (`create_quest`/`submit_action`) are unchanged and the 22 direct-mode tests
+`complete_level(level, city, action, optimal_steps, actual_steps)` applies a deterministic, integer-only
+**efficiency multiplier** (Perfect 1.5× / Good 1.0× / Wandering 0.5× / Lost 0.1×) on top of the
+weather multiplier, rewarding navigation skill. The `_judge_action` AI prompt is now **tier-driven**: it is
+lenient in Low/Medium weather (reasonable actions like "walk on the clouds" pass) and only strict in
+High/Extreme conditions. The maze generator also braids loop-backs so there are multiple viable routes
+(not a single linear corridor) while still validating a minimum path length.
+The marketplace methods (`create_quest`/`submit_action`) are unchanged and the 36 direct-mode tests
 still pass. Redeploy script: `scripts/deploy.sh`.
 
 ## Website
@@ -84,9 +91,9 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 
 | Area | Status | Evidence |
 |------|--------|----------|
-| GenLayer contract | ✅ Complete | `contracts/weatherquest.py` — 14 public methods (marketplace + progressive campaign); passes `genvm-lint check` (lint + validate). |
-| Contract deployment | ✅ Deployed to StudioNet | Address `0xA027635817B54e9b54dC0944b511399140EA6Ed9`; `scripts/deploy.sh` reproduces it. |
-| Direct-mode tests | ✅ Executed — 22/22 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`). |
+| GenLayer contract | ✅ Complete | `contracts/weatherquest.py` — 14 public methods (marketplace + progressive campaign) with a deterministic efficiency-multiplier reward tier; passes `genvm-lint check` (lint + validate). |
+| Contract deployment | ✅ Deployed to StudioNet | Address `0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694`; `scripts/deploy.sh` reproduces it. |
+| Direct-mode tests | ✅ Executed — 36/36 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`); includes efficiency-tier and maze-complexity coverage. |
 | Open-Meteo integration | ✅ Verified | Geocoding + forecast endpoints return the expected `results` / `current` shapes (confirmed live in-browser). |
 | 2D game (Kaboom.js) | ✅ Complete & builds | `frontend/src/Game.tsx` — tile field (grass/river/wall/gate/victory), WASD+arrow movement, AABB collision, gate + victory triggers. |
 | AI Gate modal | ✅ Complete & live-verified | `frontend/src/GateModal.tsx` — Framer Motion scale-in, live weather + multiplier, 3 Action Cards, custom input, "AI Validators…" judging state, verdict. |
@@ -100,7 +107,7 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 | Frontend deployment | ⏳ Workflow ready | GitHub Pages workflow included; publish + URL are **[TBD]** (manual). |
 
 ### Honest verification caveats
-- **Direct-mode tests were executed and all 22 pass.** Two harness-only shims
+- **Direct-mode tests were executed and all 36 pass.** Two harness-only shims
   live in `conftest.py` (documented in README §7): the weather LLM mock returns
   the multiplier as a string (GenVM calldata has no `float`), and `warp()` also
   writes `gl.message_raw['datetime']` (the pinned `genlayer-test` warp patches

@@ -85,8 +85,9 @@ export async function readCampaignProgress(address: string, contract: string): P
 }
 
 /**
- * complete_level(level, city, action) — gasless on StudioNet (value 0). Waits for
- * consensus, then re-reads progress to confirm the settlement authoritatively.
+ * complete_level(level, city, action, optimal_steps, actual_steps) — gasless on
+ * StudioNet (value 0). The two step counts drive the on-chain efficiency
+ * multiplier. Waits for consensus, then re-reads progress to confirm settlement.
  */
 export async function writeCompleteLevel(
   address: string,
@@ -94,12 +95,14 @@ export async function writeCompleteLevel(
   level: number,
   city: string,
   action: string,
+  optimalSteps: number,
+  actualSteps: number,
 ): Promise<{ txHash: string; completed: boolean }> {
   const client = await makeClient(address);
   const hash = await client.writeContract({
     address: contract as `0x${string}`,
     functionName: "complete_level",
-    args: [BigInt(level), city, action],
+    args: [BigInt(level), city, action, BigInt(Math.max(1, optimalSteps)), BigInt(Math.max(1, actualSteps))],
     value: 0n,
   });
   const receipt = await client.waitForTransactionReceipt({ hash });

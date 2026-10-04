@@ -228,11 +228,16 @@ def test_complete_level_success_pays_and_marks(direct_vm, direct_deploy, direct_
     mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
     mock_llm_judgment(direct_vm, success=True)
     direct_vm.sender = direct_bob
-    res = c.complete_level(1, "London", "Take shelter indoors")
+    # Good-tier navigation (optimal 20, actual 25 -> 1.0x efficiency): payout unchanged.
+    res = c.complete_level(1, "London", "Take shelter indoors", 20, 25)
     assert res["success"] is True
     assert res["level"] == 1
     assert res["difficulty"] == "Easy"
-    assert int(res["payout"]) == 20 * GEN  # 10 GEN base * 2.0x weather multiplier
+    assert int(res["payout"]) == 20 * GEN  # 10 GEN base * 2.0x weather * 1.0x efficiency
+    assert res["efficiency"] == "Good"
+    assert int(res["efficiency_x100"]) == 100
+    assert int(res["optimal_steps"]) == 20
+    assert int(res["actual_steps"]) == 25
     assert c.has_completed_level(hex_addr(direct_bob), 1) is True
     assert c.get_completed_levels(hex_addr(direct_bob)) == [1]
     prog = c.campaign_progress(hex_addr(direct_bob))
@@ -241,16 +246,64 @@ def test_complete_level_success_pays_and_marks(direct_vm, direct_deploy, direct_
     assert int(prog["campaign_payout_atto"]) == 20 * GEN
 
 
+def test_complete_level_perfect_run_grants_speed_bonus(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    # Perfect (actual <= optimal + 2) -> 1.5x efficiency bonus on top of weather.
+    res = c.complete_level(1, "London", "Take shelter indoors", 20, 20)
+    assert res["efficiency"] == "Perfect"
+    assert int(res["efficiency_x100"]) == 150
+    assert int(res["payout"]) == 30 * GEN  # 10 * 2.0 * 1.5
+
+
+def test_complete_level_wandering_is_penalized(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    # Wandering (optimal*1.5 < actual <= optimal*3) -> 0.5x penalty.
+    res = c.complete_level(1, "London", "Take shelter indoors", 10, 25)
+    assert res["efficiency"] == "Wandering"
+    assert int(res["efficiency_x100"]) == 50
+    assert int(res["payout"]) == 10 * GEN  # 10 * 2.0 * 0.5
+
+
+def test_complete_level_lost_gets_near_zero(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    # Lost (actual > optimal * 3) -> 0.1x severe penalty.
+    res = c.complete_level(1, "London", "Take shelter indoors", 10, 100)
+    assert res["efficiency"] == "Lost"
+    assert int(res["efficiency_x100"]) == 10
+    assert int(res["payout"]) == 2 * GEN  # 10 * 2.0 * 0.1
+
+
+def test_complete_level_zero_optimal_steps_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    direct_vm.sender = direct_bob
+    # Deterministic efficiency validation runs before the AI round, so no weather
+    # or LLM mocks are needed and bad navigation data reverts identically everywhere.
+    with direct_vm.expect_revert("optimal_steps must be >= 1"):
+        c.complete_level(1, "London", "Take shelter indoors", 0, 10)
+
+
 def test_complete_level_replay_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
     c = deploy(direct_deploy, direct_vm, direct_alice)
     mock_weather(direct_vm)
     mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
     mock_llm_judgment(direct_vm, success=True)
     direct_vm.sender = direct_bob
-    c.complete_level(1, "London", "Take shelter indoors")
+    c.complete_level(1, "London", "Take shelter indoors", 20, 25)
     # Anti-cheat: the same wallet cannot complete the same level twice.
     with direct_vm.expect_revert("Level already completed"):
-        c.complete_level(1, "London", "Take shelter indoors")
+        c.complete_level(1, "London", "Take shelter indoors", 20, 25)
 
 
 def test_complete_level_fail_not_marked_retryable(direct_vm, direct_deploy, direct_alice, direct_bob):
@@ -259,7 +312,7 @@ def test_complete_level_fail_not_marked_retryable(direct_vm, direct_deploy, dire
     mock_llm_analysis(direct_vm, multiplier=4.0, tier="Extreme")
     mock_llm_judgment(direct_vm, success=False)
     direct_vm.sender = direct_bob
-    res = c.complete_level(9, "London", "Sprint through the storm")
+    res = c.complete_level(9, "London", "Sprint through the storm", 20, 25)
     assert res["success"] is False
     assert int(res["payout"]) == 0
     assert c.has_completed_level(hex_addr(direct_bob), 9) is False
@@ -267,7 +320,7 @@ def test_complete_level_fail_not_marked_retryable(direct_vm, direct_deploy, dire
     # anti-cheat guard only fires once a level actually succeeds. (The direct-mode
     # judge mock is global, so this second attempt also fails; the assertion is
     # that it does NOT revert with "Level already completed".)
-    res2 = c.complete_level(9, "London", "Wait indoors until the storm passes")
+    res2 = c.complete_level(9, "London", "Wait indoors until the storm passes", 20, 25)
     assert res2["success"] is False
     assert c.has_completed_level(hex_addr(direct_bob), 9) is False
 
@@ -278,8 +331,8 @@ def test_complete_level_distinct_levels_are_independent(direct_vm, direct_deploy
     mock_llm_analysis(direct_vm, multiplier=1.5, tier="Low")
     mock_llm_judgment(direct_vm, success=True)
     direct_vm.sender = direct_bob
-    c.complete_level(1, "London", "Walk")
-    c.complete_level(2, "London", "Walk")  # different level -> not a replay
+    c.complete_level(1, "London", "Walk", 10, 10)
+    c.complete_level(2, "London", "Walk", 10, 10)  # different level -> not a replay
     assert c.get_completed_levels(hex_addr(direct_bob)) == [1, 2]
     assert c.campaign_progress(hex_addr(direct_bob))["next_level"] == 3
 
@@ -288,23 +341,23 @@ def test_complete_level_invalid_level_reverts(direct_vm, direct_deploy, direct_a
     c = deploy(direct_deploy, direct_vm, direct_alice)
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert("Level must be 1..10"):
-        c.complete_level(0, "London", "Wait")
+        c.complete_level(0, "London", "Wait", 10, 10)
     with direct_vm.expect_revert("Level must be 1..10"):
-        c.complete_level(11, "London", "Wait")
+        c.complete_level(11, "London", "Wait", 10, 10)
 
 
 def test_complete_level_empty_city_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
     c = deploy(direct_deploy, direct_vm, direct_alice)
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert("City must not be empty"):
-        c.complete_level(1, "   ", "Wait")
+        c.complete_level(1, "   ", "Wait", 10, 10)
 
 
 def test_complete_level_empty_action_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
     c = deploy(direct_deploy, direct_vm, direct_alice)
     direct_vm.sender = direct_bob
     with direct_vm.expect_revert("Action must not be empty"):
-        c.complete_level(1, "London", "   ")
+        c.complete_level(1, "London", "   ", 10, 10)
 
 
 def test_complete_level_requires_funding(direct_vm, direct_deploy, direct_alice, direct_bob):
@@ -313,9 +366,9 @@ def test_complete_level_requires_funding(direct_vm, direct_deploy, direct_alice,
     mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
     mock_llm_judgment(direct_vm, success=True)
     direct_vm.sender = direct_bob
-    # L1 base 10 GEN * 2.0x = 20 GEN payout > 1 GEN house -> fail-closed revert.
+    # L1 base 10 GEN * 2.0x * 1.0x efficiency = 20 GEN payout > 1 GEN house -> revert.
     with direct_vm.expect_revert("Contract balance insufficient"):
-        c.complete_level(1, "London", "Take shelter indoors")
+        c.complete_level(1, "London", "Take shelter indoors", 20, 25)
     assert c.has_completed_level(hex_addr(direct_bob), 1) is False  # revert left no state
 
 
@@ -325,7 +378,7 @@ def test_complete_level_per_wallet_isolation(direct_vm, direct_deploy, direct_al
     mock_llm_analysis(direct_vm, multiplier=1.5, tier="Low")
     mock_llm_judgment(direct_vm, success=True)
     direct_vm.sender = direct_bob
-    c.complete_level(1, "London", "Walk")
+    c.complete_level(1, "London", "Walk", 10, 10)
     # A different wallet has its own progress (hasCompletedLevel[bob][1] != [alice][1]).
     assert c.has_completed_level(hex_addr(direct_alice), 1) is False
     assert c.get_completed_levels(hex_addr(direct_alice)) == []

@@ -12,7 +12,7 @@
 // ============================================================================
 import { useState } from 'react';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
-import type { ActionResult, RiskAnalysis, WeatherSnapshot } from './types';
+import type { LevelOutcome, RiskAnalysis, WeatherSnapshot } from './types';
 
 interface Props {
   open: boolean;
@@ -20,9 +20,9 @@ interface Props {
   weather: WeatherSnapshot | null;
   risk: RiskAnalysis | null;
   /** Parent runs the (mock/on-chain) judgment and resolves with the verdict. */
-  onSubmit: (action: string) => Promise<ActionResult>;
+  onSubmit: (action: string) => Promise<LevelOutcome>;
   /** Fired once the verdict is known so the parent can reward/celebrate or shake. */
-  onResult: (result: ActionResult) => void;
+  onResult: (result: LevelOutcome) => void;
   onClose: () => void;
 }
 
@@ -54,7 +54,7 @@ const shake: Variants = {
 export default function GateModal({ open, city, weather, risk, onSubmit, onResult, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('select');
   const [action, setAction] = useState('');
-  const [result, setResult] = useState<ActionResult | null>(null);
+  const [result, setResult] = useState<LevelOutcome | null>(null);
   const [shakeKey, setShakeKey] = useState(0);
 
   const conditionLine = weather
@@ -201,6 +201,41 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                         (× {result.risk.multiplier.toFixed(1)} risk multiplier)
                       </span>
                     </p>
+                    {/* ---- Navigation-efficiency breakdown ---- */}
+                    <div className="mt-3 rounded-card border border-white/10 bg-white/5 p-3">
+                      <p className="font-mono text-xs text-slate-200">
+                        You took {result.actualSteps} steps · optimal was {result.optimalSteps} · efficiency{' '}
+                        {Math.min(
+                          100,
+                          Math.round((result.optimalSteps / Math.max(1, result.actualSteps)) * 100),
+                        )}
+                        %
+                      </p>
+                      <p className="mt-1 font-mono text-[11px] text-slate-400">
+                        Efficiency ×{(result.efficiencyX100 / 100).toFixed(2)} ·{' '}
+                        <span
+                          className={
+                            result.efficiency === 'Perfect'
+                              ? 'text-success'
+                              : result.efficiency === 'Lost'
+                                ? 'text-danger'
+                                : 'text-secondary'
+                          }
+                        >
+                          {result.efficiency} run
+                        </span>
+                      </p>
+                      {result.efficiency === 'Lost' && (
+                        <p className="mt-2 rounded-card border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger">
+                          You got lost! The AI penalized your reward for inefficiency. 🗺️
+                        </p>
+                      )}
+                      {result.efficiency === 'Perfect' && (
+                        <p className="mt-2 text-xs font-semibold text-success">
+                          Flawless navigation — speed bonus applied! ⚡
+                        </p>
+                      )}
+                    </div>
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.97 }}

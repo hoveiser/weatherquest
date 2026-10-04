@@ -122,7 +122,10 @@ malformed LLM output raises a `gl.vm.UserError` so the transaction reverts and *
 if both transient), `[LLM_ERROR]` misbehavior (always disagree → force rotation).
 
 **Money & multiplier are integer-exact:** GEN is atto-scaled (`1 GEN = 10^18`); the multiplier is
-stored as hundredths (`100`–`500`), and payout = `base × multiplier // 100`. No floats in state or
+stored as hundredths (`100`–`500`), and payout = `base × multiplier // 100`. Campaign levels add a
+deterministic **efficiency multiplier** (`complete_level(level, city, action, optimal_steps, actual_steps)`
+derives Perfect `1.5×` / Good `1.0×` / Wandering `0.5×` / Lost `0.1×` purely from the two step counts —
+`Final = base × weather × efficiency`, all integer math). No floats in state or
 settlement — no rounding drift between validators.
 
 ## 6. Running the frontend
@@ -142,7 +145,7 @@ auto-advances you to the next (harder) world. Level 1 is themed to your IP-detec
 settlement mirrors the on-chain rules and reads the *same* Open-Meteo data the contract uses, but
 computes the multiplier/payout locally (progress persists in `localStorage`). To play against the
 **deployed contract**, click **"Connect GenLayer Wallet"** in the HUD — the same call sites drive real
-on-chain `complete_level` / `campaign_progress` through the official `genlayer-js` SDK (`lib/genlayer.ts`,
+on-chain `complete_level` (with `optimal_steps`/`actual_steps`) / `campaign_progress` through the official `genlayer-js` SDK (`lib/genlayer.ts`,
 loaded lazily and code-split out of the demo bundle).
 
 | Var | Effect |
@@ -163,7 +166,7 @@ loaded lazily and code-split out of the demo bundle).
 
 The direct-mode suite runs on any machine that can reach PyPI + the pinned GenVM
 runner (the test SDK auto-downloads the runner into `~/.cache/gltest-direct/`).
-It was executed end-to-end and **all 22 tests pass**.
+It was executed end-to-end and **all 36 tests pass**.
 
 ```bash
 # 1. Isolated environment (Python 3.12)
@@ -183,8 +186,8 @@ pytest tests/direct/ -v
 Expected result:
 
 ```
-......................                                        [100%]
-22 passed in 0.42s
+....................................                          [100%]
+36 passed in 0.65s
 ```
 
 > **China / restricted networks?** If `pypi.org` is unreachable, add a mirror:
@@ -242,16 +245,17 @@ because image-generation/Pillow were unavailable in the build sandbox.
 ## 10. Deployment
 
 - **Contract → GenLayer StudioNet: ✅ DEPLOYED.**
-  ### `0xA027635817B54e9b54dC0944b511399140EA6Ed9`
-  (tx `0xec301940…231266bf5`, `ACCEPTED`, 5/5 validators; includes the progressive-campaign
+  ### `0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694`
+  (tx `0x900a826c…3b281e`, `ACCEPTED`, 5 validators — 3 AGREE / 2 IDLE; includes the progressive-campaign
   methods `complete_level`, `has_completed_level`, `get_completed_levels`, `get_level_reward`,
-  and `campaign_progress`). Re-deploy any time with `scripts/deploy.sh`, which
+  and `campaign_progress`, the deterministic efficiency-multiplier reward tier, and the tier-driven AI
+  judgment that is lenient in Low/Medium weather and strict only in High/Extreme). Re-deploy any time with `scripts/deploy.sh`, which
   imports the key from `.env` and publishes `contracts/weatherquest.py` to
   `studionet`. Studio explorer: https://studio.genlayer.com.
 - **Frontend → GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow. *(Live URL: **[TBD]** in `SUBMISSION.md`.)*
 
-To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0xA027635817B54e9b54dC0944b511399140EA6Ed9`
+To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694`
 and `VITE_ONCHAIN=true` in `frontend/.env` (see §6).
 
 See `SUBMISSION.md` for the fill-in submission fields and the verification outcome summary, and

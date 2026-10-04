@@ -4,6 +4,7 @@ import confetti from "canvas-confetti";
 import Game from "./Game";
 import GateModal from "./GateModal";
 import HUD from "./components/HUD";
+import DemoModeNotice from "./components/DemoModeNotice";
 import LevelSelect from "./components/LevelSelect";
 import { getWeatherByCity, previewRisk } from "./lib/weather";
 import {
@@ -14,8 +15,8 @@ import {
   fetchGenBalance,
 } from "./lib/contract";
 import { fetchIPLocation, FALLBACK_LOCATION } from "./lib/geolocation";
-import { MAX_LEVEL, cityForLevel } from "./lib/maps";
-import type { ActionResult, LevelOutcome, RiskAnalysis, WalletState, WeatherSnapshot } from "./types";
+import { MAX_LEVEL, cityForLevel, computeOptimalSteps } from "./lib/maps";
+import type { LevelOutcome, RiskAnalysis, WalletState, WeatherSnapshot } from "./types";
 
 const START_BALANCE = 25;
 
@@ -107,7 +108,7 @@ type Phase = "menu" | "playing";
  * - Walking a level: touch the closed Magic Gate → AI gate challenge (complete_level)
  *   → on success the gate opens → reach the ★ victory zone → "Level Up!" auto-advance.
  * - HUD shows wallet (Demo Mode or connected GenLayer address), level, city, GEN balance.
- * The GenLayer contract + its 22 tests are untouched; only the submit seam is reused.
+ * The GenLayer contract owns all authoritative weather-judgment + reward logic (36 direct-mode tests).
  */
 export default function App() {
   const [phase, setPhase] = useState<Phase>("menu");
@@ -120,18 +121,27 @@ export default function App() {
   const [currentLevel, setCurrentLevel] = useState(1);
   const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
   const [risk, setRisk] = useState<RiskAnalysis | null>(null);
+  const [steps, setSteps] = useState(0);
 
   const [gateOpen, setGateOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [session, setSession] = useState(0);
+  // Bumped every time the closed gate is touched so the GateModal remounts fresh
+  // (resets select/judging/verdict state). It is deliberately SEPARATE from
+  // `session`, which keys the Kaboom canvas — bumping `session` here would remount
+  // the game and teleport the player back to spawn mid-level.
+  const [gateNonce, setGateNonce] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
   const [levelUp, setLevelUp] = useState<{ from: number; to: string } | null>(null);
 
   const passedRef = useRef(false);
   const outcomeRef = useRef<LevelOutcome | null>(null);
+  const stepsRef = useRef(0); // actual_steps captured when the gate is reached
   const completedRef = useRef<number[]>([]);
   completedRef.current = completed;
+  const walletModeRef = useRef(wallet.mode);
+  walletModeRef.current = wallet.mode;
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const city = cityForLevel(currentLevel, homeCity);
@@ -181,17 +191,25 @@ export default function App() {
       if (advanceTimer.current) clearTimeout(advanceTimer.current);
       passedRef.current = false;
       outcomeRef.current = null;
+      stepsRef.current = 0;
+      setSteps(0);
       setSession((s) => s + 1);
       setCurrentLevel(level);
       setModalOpen(false);
       setPaused(false);
       setLevelUp(null);
-      // Already-conquered levels start with the gate open (a quick replay stroll).
+      // EVERY level requires the AI gate challenge, so the gate always starts closed.
+      // The lone exception is an ON-CHAIN replay of an already-settled level, where
+      // re-calling complete_level would trip the contract's anti-cheat revert — there
+      // we open the gate so the player can simply stroll to the ★. In Demo Mode,
+      // progress persists locally but the challenge is still mandatory each time,
+      // which is why a freshly-advanced level no longer greets you with an open gate.
       const done = completedRef.current.includes(level);
-      setGateOpen(done);
+      const openGate = done && walletModeRef.current === "onchain";
+      setGateOpen(openGate);
       setBanner(
-        done
-          ? `Level ${level} already conquered — walk into the ★ zone to move on.`
+        openGate
+          ? `Level ${level} already settled on-chain — walk into the ★ zone to move on.`
           : "⛩ Reach the gate and answer the AI challenge to unlock it.",
       );
       setPhase("playing");
@@ -208,21 +226,32 @@ export default function App() {
     setPhase("menu");
   }, []);
 
-  // Player touched the closed gate → pause and open the AI challenge.
-  const handleGate = useCallback(() => {
+  // Player touched the closed gate → pause, capture the step count, open the AI
+  // challenge. `s` is the number of cells entered en route (actual_steps).
+  const handleGate = useCallback((s: number) => {
     if (gateOpen) return;
     passedRef.current = false;
+    stepsRef.current = s;
+    setSteps(s);
     ensureAudio();
-    setSession((s) => s + 1);
+    setGateNonce((n) => n + 1);
     setModalOpen(true);
     setPaused(true);
   }, [gateOpen]);
 
-  // Run the (demo/on-chain) judgment for this campaign level.
+  // Run the (demo/on-chain) judgment for this campaign level, scoring navigation
+  // efficiency from the BFS optimal path vs. the steps the player actually took.
   const handleSubmit = useCallback(
-    async (action: string): Promise<ActionResult> => {
+    async (action: string): Promise<LevelOutcome> => {
       ensureAudio();
-      const outcome = await completeLevel({ level: currentLevel, homeCity, action, wallet });
+      const outcome = await completeLevel({
+        level: currentLevel,
+        homeCity,
+        action,
+        wallet,
+        optimalSteps: computeOptimalSteps(currentLevel),
+        actualSteps: Math.max(1, stepsRef.current),
+      });
       outcomeRef.current = outcome;
       return outcome;
     },
@@ -230,7 +259,7 @@ export default function App() {
   );
 
   // Verdict known: reward + confetti + chime on pass; the modal shakes on fail.
-  const handleResult = useCallback((result: ActionResult) => {
+  const handleResult = useCallback((result: LevelOutcome) => {
     const outcome = outcomeRef.current;
     if (result.success) {
       passedRef.current = true;
@@ -301,17 +330,18 @@ export default function App() {
   }, []);
 
   // Dev-only seams so the AI-gate modal, victory->advance, and level jumps can be
-  // exercised directly without pixel-perfect canvas walking. Vite replaces
+  // exercised directly without pixel-perfect canvas walking. __wgOpenGate takes a
+  // synthetic step count so efficiency can be forced. Vite replaces
   // `import.meta.env.DEV` with `false` in production, so these are stripped from
   // the built bundle and never reachable by reviewers on GitHub Pages.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const w = window as unknown as {
-      __wgOpenGate?: () => void;
+      __wgOpenGate?: (steps?: number) => void;
       __wgWin?: () => void;
       __wgPlay?: (level: number) => void;
     };
-    w.__wgOpenGate = handleGate;
+    w.__wgOpenGate = (s = 0) => handleGate(s);
     w.__wgWin = handleVictory;
     w.__wgPlay = enterLevel;
     return () => {
@@ -330,13 +360,24 @@ export default function App() {
           <p className="text-xs text-muted">A 2D AI-gated weather RPG · move with WASD / arrow keys</p>
         </div>
 
+        <DemoModeNotice mode={wallet.mode} />
+
         {phase === "menu" ? (
           <div className="relative">
             {/* Compact wallet/balance bar on the menu */}
             <div className="mb-4 flex items-center justify-between gap-3">
               <div className="glass rounded-card px-3 py-2 shadow-card">
                 <span
-                  className={`chip ${wallet.mode === "onchain" ? "bg-success/15 text-success" : "bg-white/10 text-muted"}`}
+                  title={
+                    wallet.mode === "onchain"
+                      ? "On-chain: playing against the deployed GenLayer contract."
+                      : "Demo Mode: Progress saved locally. Connect wallet for on-chain play."
+                  }
+                  className={
+                    wallet.mode === "onchain"
+                      ? "chip bg-success/15 text-success"
+                      : "inline-flex animate-pulse items-center rounded-pill bg-gradient-to-r from-warning to-primary px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-black shadow-glow-purple"
+                  }
                 >
                   {wallet.mode === "onchain" ? "⛓ On-chain" : "🎮 Demo Mode"}
                 </span>
@@ -373,17 +414,7 @@ export default function App() {
             )}
           </div>
         ) : (
-          <div className="relative">
-            {/* Game canvas (Kaboom mounts its canvas here). Keyed by level so the map regenerates. */}
-            <Game
-              key={`${currentLevel}-${session}`}
-              level={currentLevel}
-              gateOpen={gateOpen}
-              paused={paused}
-              onGateReached={handleGate}
-              onVictoryReached={handleVictory}
-            />
-
+          <div>
             <HUD
               mode={wallet.mode}
               address={wallet.address}
@@ -395,6 +426,20 @@ export default function App() {
               displayBalance={displayBalance}
               weather={weather}
               risk={risk}
+              steps={steps}
+              optimalSteps={computeOptimalSteps(currentLevel)}
+            />
+
+            <div className="relative">
+            {/* Game canvas (Kaboom mounts its canvas here). Keyed by level so the map regenerates. */}
+            <Game
+              key={`${currentLevel}-${session}`}
+              level={currentLevel}
+              gateOpen={gateOpen}
+              paused={paused}
+              onGateReached={handleGate}
+              onVictoryReached={handleVictory}
+              onStepsChanged={setSteps}
             />
 
             {/* Back-to-menu + status banner */}
@@ -434,10 +479,11 @@ export default function App() {
                 </motion.div>
               )}
             </AnimatePresence>
+            </div>
 
             {/* AI Gate Modal (challenge for the current level's city) */}
             <GateModal
-              key={session}
+              key={`${currentLevel}-${gateNonce}`}
               open={modalOpen}
               city={city}
               weather={weather}

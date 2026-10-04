@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import kaboom, { type KaboomCtx } from "kaboom";
-import { generateMap, levelTheme } from "./lib/maps";
+import { generateMap, levelTheme, SPAWN_CELL } from "./lib/maps";
 
 /**
  * WeatherGate — a 2D top-down mini RPG built on Kaboom.js.
@@ -74,10 +74,13 @@ export interface GameProps {
   gateOpen?: boolean;
   /** Freeze player input (e.g. while the AI gate modal is open). */
   paused?: boolean;
-  /** Fires once per approach when the player touches a *closed* gate. */
-  onGateReached?: () => void;
+  /** Fires once per approach when the player touches a *closed* gate, with the
+   *  number of grid cells entered so far (`actual_steps`). */
+  onGateReached?: (steps: number) => void;
   /** Fires once when the player walks into the victory zone (gate already open). */
   onVictoryReached?: () => void;
+  /** Fires on every cell transition so the host can show a live step counter. */
+  onStepsChanged?: (steps: number) => void;
 }
 
 export default function Game({
@@ -86,6 +89,7 @@ export default function Game({
   paused = false,
   onGateReached,
   onVictoryReached,
+  onStepsChanged,
 }: GameProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const ctxRef = useRef<KaboomCtx | null>(null);
@@ -96,8 +100,8 @@ export default function Game({
   const blockersRef = useRef<Rect[]>([]);
   const promptArmed = useRef(true); // re-arm the gate prompt after leaving
   const victoryFired = useRef(false);
-  const cbsRef = useRef({ onGateReached, onVictoryReached });
-  cbsRef.current = { onGateReached, onVictoryReached };
+  const cbsRef = useRef({ onGateReached, onVictoryReached, onStepsChanged });
+  cbsRef.current = { onGateReached, onVictoryReached, onStepsChanged };
 
   // One-time Kaboom boot. Re-running only happens on a real unmount/remount.
   useEffect(() => {
@@ -164,16 +168,26 @@ export default function Game({
           k.add([k.pos(vc.cx + 18, vc.cy), k.text("★", { size: 30 }), k.anchor("center"), k.color(220, 255, 230), "deco"]),
         );
 
-      // The player: a rounded neon rectangle.
+      // The player: a rounded neon rectangle. Spawn is aligned to maps.ts SPAWN_CELL
+      // (a guaranteed-carved maze room) so the BFS `optimal_steps` the host computes
+      // matches where the player actually starts.
       const player = k.add([
         k.rect(PLAYER_HALF * 2, PLAYER_HALF * 2, { radius: 6 }),
         k.color(255, 159, 64),
         k.outline(3, k.rgb(255, 255, 255)),
-        k.pos(2 * TILE + TILE / 2, 10 * TILE + TILE / 2),
+        k.pos(SPAWN_CELL.c * TILE + TILE / 2, SPAWN_CELL.r * TILE + TILE / 2),
         k.anchor("center"),
         k.z(10),
         "player",
       ]);
+
+      // Navigation-efficiency tracker. `steps` counts every grid-cell transition
+      // (including revisits), which is directly comparable to the BFS shortest-path
+      // length the contract scores against — wandering inflates it, a direct route
+      // does not. It is client-supplied navigation data, never consensus state.
+      let steps = 0;
+      let lastCellC: number = SPAWN_CELL.c;
+      let lastCellR: number = SPAWN_CELL.r;
 
       const overlaps = (px: number, py: number): boolean =>
         blockersRef.current.some(
@@ -207,6 +221,16 @@ export default function Game({
         const px = player.pos.x;
         const py = player.pos.y;
 
+        // Count a step whenever the player's centre enters a new grid cell.
+        const cellC = Math.floor(px / TILE);
+        const cellR = Math.floor(py / TILE);
+        if (cellC !== lastCellC || cellR !== lastCellR) {
+          lastCellC = cellC;
+          lastCellR = cellR;
+          steps += 1;
+          cbsRef.current.onStepsChanged?.(steps);
+        }
+
         // Gate trigger: touching a *closed* gate opens the AI check (once).
         if (!gateOpenRef.current) {
           const atGate = gateCells.some(
@@ -214,7 +238,7 @@ export default function Game({
           );
           if (atGate && promptArmed.current) {
             promptArmed.current = false;
-            cbsRef.current.onGateReached?.();
+            cbsRef.current.onGateReached?.(steps);
           } else if (!atGate) {
             promptArmed.current = true;
           }

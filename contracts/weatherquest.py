@@ -50,6 +50,16 @@ MULT_MIN = 100                   # 1.00x, stored as hundredths (integer)
 MULT_MAX = 500                   # 5.00x
 MULT_TOLERANCE = 100             # validators may differ by up to 1.00x
 
+# --- Efficiency-based reward tiers (navigation skill) -----------------------
+# The frontend computes `optimal_steps` (BFS shortest spawn->gate when the map is
+# generated) and tracks `actual_steps` (cells the player entered). The contract
+# scales the weather-settled payout by an efficiency multiplier. All integer math
+# (hundredths) — no floats — so every validator derives the identical tier.
+EFF_PERFECT_X100 = 150           # actual <= optimal + 2      -> 1.5x (speed bonus)
+EFF_GOOD_X100 = 100              # actual <= optimal * 1.5    -> 1.0x (normal)
+EFF_WANDER_X100 = 50             # actual <= optimal * 3.0    -> 0.5x (penalty)
+EFF_LOST_X100 = 10               # otherwise                  -> 0.1x (near-zero)
+
 # --- Progressive campaign (single-player RPG levels) ------------------------
 MAX_LEVEL = 10
 # Base GEN reward per campaign level (index = level; slot 0 unused). Easy levels
@@ -179,6 +189,34 @@ def _level_difficulty(level):
 	if level <= 7:
 		return "Medium"
 	return "Hard"
+
+
+def _efficiency_multiplier(optimal_steps, actual_steps):
+	"""Deterministic efficiency tier from step counts (integer math, no floats).
+
+	Returns (efficiency_x100, tier_name, optimal_i, actual_i). `optimal_steps` is the
+	BFS shortest spawn->gate length the frontend derived for this exact map; the
+	contract only enforces `optimal_steps >= 1` here — the *complexity* guarantee
+	(no straight-line wins) is enforced by the client map generator. Step counts are
+	client-supplied navigation data; scaling the already-consensus-settled payout by
+	them adds no new nondeterminism, so it stays fully deterministic across validators.
+	"""
+	try:
+		opt = int(optimal_steps)
+		act = int(actual_steps)
+	except (ValueError, TypeError):
+		raise gl.vm.UserError(f"{ERROR_EXPECTED} step counts must be integers")
+	if opt < 1:
+		raise gl.vm.UserError(f"{ERROR_EXPECTED} optimal_steps must be >= 1")
+	if act < 1:
+		act = 1
+	if act <= opt + 2:
+		return EFF_PERFECT_X100, "Perfect", opt, act
+	if act * 2 <= opt * 3:  # act <= optimal * 1.5 without float math
+		return EFF_GOOD_X100, "Good", opt, act
+	if act <= opt * 3:
+		return EFF_WANDER_X100, "Wandering", opt, act
+	return EFF_LOST_X100, "Lost", opt, act
 
 
 def _level_key(account, level):
@@ -322,23 +360,49 @@ def _analyze_weather(city):
 
 
 def _judge_action(summary, tier, action, level=0):
-	"""LLM decides whether the action is safe given the risk tier. Fail-closed.
+	"""LLM decides whether the action is safe given the weather risk tier. Fail-closed.
 
-	`level` (0 = marketplace quest, no extra context) lets the campaign raise the
-	bar on Hard/Extreme levels. The core sentence stays intact so validator prompts
-	are identical for the same inputs.
+	Strictness is driven by the WEATHER RISK TIER, not the campaign level: calm (Low)
+	weather accepts any reasonable action, mild (Medium) rejects only clearly dangerous
+	ones, and only High/Extreme are strict. (Level-based strictness was the bug — it
+	rejected sensible actions on hard levels even in gentle weather.) `level` is kept
+	for call-site compatibility but no longer tightens the bar. The core sentence stays
+	intact so validator prompts are byte-identical for the same inputs.
 	"""
-	difficulty_note = ""
-	if level >= 8:
-		difficulty_note = " This is a HIGH-DIFFICULTY campaign level (Hard/Extreme): be strict — only clearly safe, well-adapted actions pass. "
-	elif level >= 4:
-		difficulty_note = " This is a MEDIUM-DIFFICULTY campaign level: expect moderate strictness. "
+	t = str(tier).strip().lower()
+	if t.startswith("low"):
+		guidance = (
+			"Conditions are CALM (Low risk). Be LENIENT: accept any reasonable, even "
+			"playful action — 'take a walk', 'walk on the clouds', 'cycle to the town', "
+			"'set up camp' all clearly succeed. Only reject an action that is nonsensical "
+			"or self-contradictory, which is essentially never."
+		)
+	elif t.startswith("med"):
+		guidance = (
+			"Conditions are MILD (Medium risk). Be FORGIVING: most reasonable actions "
+			"succeed — walking, hiking, cycling, driving, sailing a boat, or taking "
+			"shelter are all fine. Only reject a clearly dangerous action that needlessly "
+			"braves the elements, e.g. flying a kite or free-climbing in strong wind."
+		)
+	elif t.startswith("high"):
+		guidance = (
+			"Conditions are RISKY (High risk). Be MODERATELY STRICT: accept actions that "
+			"adapt to the weather (take shelter, drive carefully, put on equipment, wait "
+			"it out, or ordinary ground travel); reject plainly reckless ones (swim across "
+			"floodwater, fly a kite in lightning, climb in a gale)."
+		)
+	else:
+		guidance = (
+			"Conditions are SEVERE (Extreme risk). Be STRICT: only clearly safe, "
+			"well-adapted actions succeed (shelter indoors, wait for it to pass, use "
+			"proper protective equipment). Reject anything that exposes the player to the "
+			"elements (run, swim, climb, sail, fly a kite)."
+		)
 	prompt = (
 		f"A bounty quest takes place under these conditions: {summary} "
-		f"(risk tier: {tier}). A player wants to attempt: \"{action}\". Judge "
-		"whether performing this action in these conditions is reasonably SAFE "
-		"and would succeed." + difficulty_note + " Cautious/adapted actions in Extreme weather can still "
-		"succeed; reckless actions can fail. Return STRICT JSON exactly: "
+		f"(risk tier: {tier}). A player wants to attempt: \"{action}\". {guidance}\n"
+		"Judge whether performing this action in these conditions is reasonably SAFE "
+		"and would succeed. Return STRICT JSON exactly: "
 		'{"success": boolean, "reasoning": string} where reasoning is one '
 		"sentence (<= 240 chars)."
 	)
@@ -572,12 +636,13 @@ class WeatherQuest(gl.Contract):
 
 	# -- Progressive campaign ------------------------------------------------
 	@gl.public.write
-	def complete_level(self, level: u256, city: str, action: str) -> dict:
+	def complete_level(self, level: u256, city: str, action: str, optimal_steps: u256, actual_steps: u256) -> dict:
 		"""AI-gated campaign level. The caller's wallet address is the identity, so
 		each (wallet, level) can only be *completed* once — replay is rejected. The
 		weather multiplier is derived for `city` (Level 1 = the player's real IP city)
 		and the AI judges `action`; on success the contract pays
-		base(level) * multiplier GEN from the house and marks the level done."""
+		base(level) * weather_multiplier * efficiency_multiplier GEN from the house and
+		marks the level done. `optimal_steps`/`actual_steps` reward navigation skill."""
 		lvl = _validate_level(level)
 
 		city_clean = "" if city is None else str(city).strip()
@@ -591,6 +656,10 @@ class WeatherQuest(gl.Contract):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Action must not be empty")
 		if len(action_clean) > ACTION_MAX:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Action too long (max {ACTION_MAX})")
+
+		# Deterministic efficiency gate (client-supplied navigation data). Validated
+		# up front so bad inputs revert identically for every validator.
+		eff_x100, eff_tier, opt_i, act_i = _efficiency_multiplier(optimal_steps, actual_steps)
 
 		sender = gl.message.sender_address
 		key = _level_key(sender, lvl)
@@ -617,7 +686,8 @@ class WeatherQuest(gl.Contract):
 		res = gl.vm.run_nondet(leader_fn, validator_fn)
 
 		base = _level_base_atto(lvl)
-		payout = u256((int(base) * int(res["multiplier"])) // 100)
+		# Final = base * weather(x100) * efficiency(x100) / 10000 (all integer).
+		payout = u256((int(base) * int(res["multiplier"]) * eff_x100) // 10000)
 		result = self._format_analysis(res)
 		result["success"] = bool(res["success"])
 		result["judgment_reasoning"] = res["judgment_reasoning"]
@@ -625,6 +695,10 @@ class WeatherQuest(gl.Contract):
 		result["difficulty"] = _level_difficulty(lvl)
 		result["base_reward_atto"] = int(base)
 		result["base_reward_gen"] = _fmt_atto(base)
+		result["optimal_steps"] = opt_i
+		result["actual_steps"] = act_i
+		result["efficiency"] = eff_tier
+		result["efficiency_x100"] = eff_x100
 
 		if res["success"]:
 			if self.balance < payout:

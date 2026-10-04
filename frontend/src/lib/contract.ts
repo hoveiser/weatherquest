@@ -1,6 +1,7 @@
 import type {
   ActionResult,
   CampaignProgress,
+  EfficiencyTier,
   LevelOutcome,
   Quest,
   RiskAnalysis,
@@ -30,8 +31,13 @@ export const USE_ONCHAIN = Boolean(CONTRACT_ADDRESS) && import.meta.env.VITE_ONC
 
 export const DEMO_ADDR = "0xWeatherQuestDemo00000000000000000000000000";
 
-const RECKLESS = ["run", "fly", "swim", "cycle", "climb", "walk", "jog", "sprint", "kite", "sail"];
-const CAUTIOUS = ["cover", "shelter", "snowmobile", "drive", "wait", "stay", "indoor", "equipment", "hunker"];
+// Verbs that only become dangerous when the weather turns rough — i.e. activities
+// that expose the player to the elements. Ordinary ground movement (walk / run /
+// cycle / hike) is deliberately NOT here: it is a reasonable action in calm/mild
+// weather and must never be auto-rejected (that was the "AI rejects everything"
+// bug). Treat these as "reckless" only in High/Extreme conditions.
+const RECKLESS = ["fly", "kite", "swim", "climb", "sail", "raft", "surf", "boat", "paraglide", "skydiv", "kayak"];
+const CAUTIOUS = ["cover", "shelter", "snowmobile", "drive", "wait", "stay", "indoor", "equipment", "hunker", "prepare", "warm", "dry", "anchor", "bundl", "helmet", "postpone", "avoid", "detour"];
 
 // --- Demo persistence -------------------------------------------------------
 const DEMO_ACCOUNT_KEY = "wq:demo:account";
@@ -141,15 +147,35 @@ export interface CompleteLevelInput {
   homeCity: string;
   action: string;
   wallet: WalletState;
+  /** BFS shortest spawn→gate length for the rendered map (>= 1). */
+  optimalSteps: number;
+  /** Grid-cell transitions the player made before reaching the gate (>= 1). */
+  actualSteps: number;
+}
+
+/**
+ * Demo mirror of the contract's _efficiency_multiplier — identical integer tiers so
+ * the offline preview and the on-chain settlement always agree. Returns the tier
+ * and its hundredths multiplier (150 / 100 / 50 / 10).
+ */
+export function efficiencyTier(optimalSteps: number, actualSteps: number): { tier: EfficiencyTier; x100: number } {
+  const opt = Math.max(1, Math.trunc(optimalSteps) || 1);
+  const act = Math.max(1, Math.trunc(actualSteps) || 1);
+  if (act <= opt + 2) return { tier: "Perfect", x100: 150 };
+  if (act * 2 <= opt * 3) return { tier: "Good", x100: 100 }; // act <= optimal * 1.5, no floats
+  if (act <= opt * 3) return { tier: "Wandering", x100: 50 };
+  return { tier: "Lost", x100: 10 };
 }
 
 export async function completeLevel(input: CompleteLevelInput): Promise<LevelOutcome> {
   const city = cityForLevel(input.level, input.homeCity);
   const difficulty = difficultyBand(input.level);
+  const optimal = Math.max(1, Math.trunc(input.optimalSteps) || 1);
+  const actual = Math.max(1, Math.trunc(input.actualSteps) || 1);
   if (input.wallet.mode === "onchain" && CONTRACT) {
-    return completeLevelOnChain(input.level, city, input.action, difficulty, input.wallet);
+    return completeLevelOnChain(input.level, city, input.action, difficulty, input.wallet, optimal, actual);
   }
-  return completeLevelDemo(input.level, city, input.action, difficulty, input.wallet);
+  return completeLevelDemo(input.level, city, input.action, difficulty, input.wallet, optimal, actual);
 }
 
 /** Live weather + preview multiplier for a city (never throws; returns calm fallback). */
@@ -174,7 +200,10 @@ async function completeLevelDemo(
   action: string,
   difficulty: ReturnType<typeof difficultyBand>,
   _wallet: WalletState,
+  optimal: number,
+  actual: number,
 ): Promise<LevelOutcome> {
+  const eff = efficiencyTier(optimal, actual);
   const done = loadDemoProgress();
   if (done.includes(level)) {
     const { risk } = await previewFor(city);
@@ -186,6 +215,10 @@ async function completeLevelDemo(
       reasoning: `Level ${level} (${city}) is already conquered — the gate stands open. Walk on through.`,
       difficulty,
       city,
+      optimalSteps: optimal,
+      actualSteps: actual,
+      efficiency: eff.tier,
+      efficiencyX100: eff.x100,
       alreadyCompleted: true,
     };
   }
@@ -196,32 +229,37 @@ async function completeLevelDemo(
   const a = action.toLowerCase();
   const reckless = RECKLESS.some((k) => a.includes(k));
   const cautious = CAUTIOUS.some((k) => a.includes(k));
-  const extreme = risk.risk_tier === "Extreme";
 
   let success: boolean;
   let verdict: string;
 
-  // Progressive AI strictness — mirrors the contract's difficulty_note for _judge_action.
-  if (difficulty === "Hard") {
+  // Strictness is keyed on the LIVE WEATHER RISK TIER (not the level), mirroring the
+  // contract's _judge_action: Low accepts anything reasonable, Medium rejects only
+  // clearly dangerous actions, High/Extreme are strict.
+  const mult = risk.multiplier.toFixed(1);
+  if (risk.risk_tier === "Low") {
+    success = true;
+    verdict = `Low risk (${mult}x): calm conditions — "${action}" is an easy call.`;
+  } else if (risk.risk_tier === "Medium") {
+    success = !(reckless && !cautious);
+    verdict = success
+      ? `Medium risk (${mult}x): "${action}" is a reasonable response to mild conditions.`
+      : `Medium risk (${mult}x): "${action}" needlessly braves the weather — pick a safer approach.`;
+  } else if (risk.risk_tier === "High") {
+    success = cautious || !reckless;
+    verdict = success
+      ? `High risk (${mult}x): "${action}" adapts appropriately to the conditions.`
+      : `High risk (${mult}x): "${action}" was too exposed for these conditions.`;
+  } else {
     success = cautious && !reckless;
     verdict = success
-      ? `Hard level: only a clearly safe, adapted action passes. "${action}" qualified in ${risk.risk_tier.toLowerCase()} conditions.`
-      : `Hard level: the AI is strict here. "${action}" was not a clearly safe response to ${risk.risk_tier.toLowerCase()} weather.`;
-  } else if (difficulty === "Medium") {
-    success = extreme ? cautious && !reckless : !reckless || cautious;
-    verdict = success
-      ? `Medium level: "${action}" was a reasonable response to ${risk.risk_tier.toLowerCase()} conditions.`
-      : `Medium level: "${action}" was too reckless for ${risk.risk_tier.toLowerCase()} conditions.`;
-  } else {
-    // Easy — forgiving onboarding; only fails on clearly reckless actions in extreme weather.
-    success = !(reckless && !cautious && extreme);
-    verdict = success
-      ? `Easy level: ${risk.risk_tier.toLowerCase()} weather (${risk.multiplier.toFixed(1)}x) was survivable for "${action}".`
-      : `Even on an easy level, "${action}" in ${risk.risk_tier.toLowerCase()} weather was judged unsafe.`;
+      ? `Extreme risk (${mult}x): "${action}" is the right cautious call in severe weather.`
+      : `Extreme risk (${mult}x): "${action}" exposes you to dangerous weather. Take shelter instead.`;
   }
 
   const base = baseRewardGen(level);
-  const payoutGen = success ? base * risk.multiplier : 0;
+  // Final = base * weather-multiplier * efficiency-multiplier (integer-hundredths tier).
+  const payoutGen = success ? round4(base * risk.multiplier * (eff.x100 / 100)) : 0;
   if (success) {
     done.push(level);
     saveDemoProgress(done);
@@ -235,6 +273,10 @@ async function completeLevelDemo(
     reasoning: verdict,
     difficulty,
     city,
+    optimalSteps: optimal,
+    actualSteps: actual,
+    efficiency: eff.tier,
+    efficiencyX100: eff.x100,
     txHash: fakeTxHash(),
   };
 }
@@ -245,12 +287,17 @@ async function completeLevelOnChain(
   action: string,
   difficulty: ReturnType<typeof difficultyBand>,
   wallet: WalletState,
+  optimal: number,
+  actual: number,
 ): Promise<LevelOutcome> {
-  // The UI preview is non-authoritative; the contract re-derives the real multiplier.
+  // The UI preview is non-authoritative; the contract re-derives the real multiplier
+  // and applies the identical efficiency tier on-chain.
   const { risk } = await previewFor(city);
-  const res = await gl.writeCompleteLevel(wallet.address, CONTRACT, level, city, action);
+  const eff = efficiencyTier(optimal, actual);
+  const res = await gl.writeCompleteLevel(wallet.address, CONTRACT, level, city, action, optimal, actual);
   const success = res.completed;
-  const payoutGen = success ? baseRewardGen(level) * risk.multiplier : 0;
+  const base = baseRewardGen(level);
+  const payoutGen = success ? round4(base * risk.multiplier * (eff.x100 / 100)) : 0;
   return {
     level,
     success,
@@ -261,6 +308,10 @@ async function completeLevelOnChain(
       : `On-chain: the AI judgment failed Level ${level} (${city}). Try a safer action and resubmit.`,
     difficulty,
     city,
+    optimalSteps: optimal,
+    actualSteps: actual,
+    efficiency: eff.tier,
+    efficiencyX100: eff.x100,
     txHash: res.txHash,
   };
 }
@@ -355,6 +406,11 @@ export { genToAtto, attoToGen };
 
 function fakeTxHash(): string {
   return `0x${Math.random().toString(16).slice(2).padEnd(64, "0").slice(0, 64)}`;
+}
+
+/** Round to 4 decimals (GEN display precision) without float drift artifacts. */
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
 }
 
 function delay(ms: number) {

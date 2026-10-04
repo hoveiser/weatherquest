@@ -13,6 +13,10 @@ interface Props {
   displayBalance: number;
   weather: WeatherSnapshot | null;
   risk: RiskAnalysis | null;
+  /** Live grid-cell transitions the player has made this level. */
+  steps?: number;
+  /** BFS shortest spawn→gate length (optimal_steps) for the current map. */
+  optimalSteps?: number;
 }
 
 const TIER_COLOR: Record<string, string> = {
@@ -34,18 +38,29 @@ export default function HUD({
   displayBalance,
   weather,
   risk,
+  steps,
+  optimalSteps,
 }: Props) {
   const onchain = mode === "onchain";
   return (
-    <>
-      {/* Top-left: wallet + GEN balance */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-3 p-3">
+    /* A top BAR rendered in normal flow ABOVE the canvas (no longer an absolute
+       overlay) — this fixes the HUD covering the playable field. */
+    <div className="relative z-20 mb-2 flex flex-wrap items-start justify-between gap-2 rounded-card border border-white/10 bg-white/5 px-3 py-2 shadow-card">
         <div className="flex flex-col gap-2">
           {/* Wallet control */}
           <div className="pointer-events-auto glass rounded-card px-3 py-2 shadow-card">
             <div className="flex items-center gap-2">
               <span
-                className={`chip ${onchain ? "bg-success/15 text-success" : "bg-white/10 text-muted"}`}
+                title={
+                  onchain
+                    ? "On-chain: playing against the deployed GenLayer contract."
+                    : "Demo Mode: Progress saved locally. Connect wallet for on-chain play."
+                }
+                className={
+                  onchain
+                    ? "chip bg-success/15 text-success"
+                    : "inline-flex animate-pulse items-center gap-1 rounded-pill bg-gradient-to-r from-warning to-primary px-4 py-1.5 text-sm font-extrabold uppercase tracking-wide text-black shadow-glow-purple"
+                }
               >
                 {onchain ? "⛓ On-chain" : "🎮 Demo Mode"}
               </span>
@@ -81,6 +96,11 @@ export default function HUD({
             <div className="text-sm font-bold text-ink">
               LVL {level} · {city}
             </div>
+            {optimalSteps != null && (
+              <div className="mt-0.5 font-mono text-[10px] text-muted">
+                🚶 {steps ?? 0} steps · optimal {optimalSteps}
+              </div>
+            )}
           </div>
         </div>
 
@@ -98,7 +118,6 @@ export default function HUD({
             <div className="text-sm text-muted">loading weather…</div>
           )}
         </div>
-      </div>
-    </>
+    </div>
   );
 }
