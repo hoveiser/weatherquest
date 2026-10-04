@@ -220,6 +220,7 @@ async function completeLevelDemo(
       efficiency: eff.tier,
       efficiencyX100: eff.x100,
       alreadyCompleted: true,
+      onChain: false,
     };
   }
 
@@ -277,6 +278,7 @@ async function completeLevelDemo(
     actualSteps: actual,
     efficiency: eff.tier,
     efficiencyX100: eff.x100,
+    onChain: false,
     txHash: fakeTxHash(),
   };
 }
@@ -312,6 +314,7 @@ async function completeLevelOnChain(
     actualSteps: actual,
     efficiency: eff.tier,
     efficiencyX100: eff.x100,
+    onChain: true,
     txHash: res.txHash,
   };
 }

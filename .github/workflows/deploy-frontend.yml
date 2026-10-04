@@ -34,6 +34,15 @@ jobs:
       - name: Build
         # The app uses HashRouter + a relative Vite base, so the bundle works
         # directly at the project-page mount point (/repo/) with no extra config.
+        #
+        # VITE_CONTRACT_ADDRESS is a PUBLIC on-chain address (StudioNet) baked into
+        # the bundle so that, once a player connects a wallet, complete_level settles
+        # for real on-chain. We deliberately do NOT set VITE_ONCHAIN=true: the campaign
+        # path only needs the address (wallet.mode=="onchain" && CONTRACT), and flipping
+        # VITE_ONCHAIN would make the marketplace create/submit flows throw (they have
+        # no funded escrow). A public address is safe to commit here.
+        env:
+          VITE_CONTRACT_ADDRESS: "0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -106,6 +106,9 @@ export interface LevelOutcome {
   efficiency: EfficiencyTier;
   /** Efficiency multiplier in hundredths: 150 / 100 / 50 / 10. */
   efficiencyX100: number;
+  /** True once the level was settled by the on-chain contract (real GEN transfer);
+   *  false in demo mode (local, simulated). Drives honest settlement copy in the UI. */
+  onChain?: boolean;
   alreadyCompleted?: boolean;
   txHash?: string;
 }

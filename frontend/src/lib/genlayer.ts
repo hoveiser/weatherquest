@@ -106,9 +106,16 @@ export async function writeCompleteLevel(
     value: 0n,
   });
   const receipt = await client.waitForTransactionReceipt({ hash });
-  // Re-read progress to confirm the level flipped to completed on-chain.
-  const progress = await readCampaignProgress(address, contract);
-  return { txHash: String(hash ?? (receipt as { hash?: string })?.hash ?? ""), completed: progress.completed.includes(level) };
+  // StudioNet applies the payout on FINALIZED, which can lag the receipt by a few
+  // seconds. Poll progress briefly so a settled win isn't falsely reported as failed.
+  let completed = false;
+  for (let i = 0; i < 6 && !completed; i++) {
+    const progress = await readCampaignProgress(address, contract);
+    completed = progress.completed.includes(level);
+    if (!completed) await new Promise((r) => setTimeout(r, 5000));
+  }
+  void receipt;
+  return { txHash: String(hash), completed };
 }
 
 export const GEN_UNIT = GEN_WEI;

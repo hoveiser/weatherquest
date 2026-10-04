@@ -82,7 +82,28 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     const trimmed = action.trim();
     if (!trimmed || mode === 'judging') return;
     setMode('judging');
-    const res = await onSubmit(trimmed);
+    let res: LevelOutcome;
+    try {
+      res = await onSubmit(trimmed);
+    } catch {
+      // On-chain settlement can fail on StudioNet (validators congested / timeout).
+      // Show an honest non-settled verdict instead of hanging on "analyzing…".
+      res = {
+        level: 0,
+        success: false,
+        payoutGen: 0,
+        risk: result?.risk ?? ({ multiplier: 1, multiplierX100: 100, risk_tier: 'Low', reasoning: '' }),
+        reasoning:
+          'On-chain settlement did not confirm — StudioNet validators may be congested or the transaction timed out. Nothing was charged and the level was NOT completed; try again shortly, or play in demo mode.',
+        difficulty: 'Easy',
+        city,
+        optimalSteps: 0,
+        actualSteps: 0,
+        efficiency: 'Good',
+        efficiencyX100: 100,
+        onChain: true,
+      };
+    }
     setResult(res);
     setMode('verdict');
     if (!res.success) setShakeKey((k) => k + 1);
@@ -196,10 +217,28 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                 {result.success ? (
                   <>
                     <p className="mt-3 font-mono text-sm text-white">
-                      +{result.payoutGen.toFixed(1)} GEN{' '}
+                      {result.onChain ? '≈' : '+'}
+                      {result.payoutGen.toFixed(1)} GEN{' '}
                       <span className="text-slate-400">
                         (× {result.risk.multiplier.toFixed(1)} risk multiplier)
                       </span>
+                    </p>
+                    <p className="mt-1 font-mono text-[11px] leading-relaxed text-slate-400">
+                      {result.onChain ? (
+                        <>
+                          ⛓ Settled on-chain — validators transferred GEN straight to your wallet
+                          {result.txHash ? (
+                            <>
+                              {' '}· tx{' '}
+                              <span className="text-secondary">
+                                {result.txHash.slice(0, 10)}…{result.txHash.slice(-6)}
+                              </span>
+                            </>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>🎮 Demo — reward simulated locally. Connect a wallet to settle on-chain.</>
+                      )}
                     </p>
                     {/* ---- Navigation-efficiency breakdown ---- */}
                     <div className="mt-3 rounded-card border border-white/10 bg-white/5 p-3">
@@ -242,7 +281,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                       onClick={onClose}
                       className="mt-4 w-full rounded-pill bg-primary py-2.5 font-bold text-white transition-colors hover:bg-primary/90"
                     >
-                      Claim reward &amp; open the gate →
+                      {result.onChain ? 'Reward sent — open the gate →' : 'Open the gate →'}
                     </motion.button>
                   </>
                 ) : (
