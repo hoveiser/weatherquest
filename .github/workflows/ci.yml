@@ -41,6 +41,22 @@ jobs:
       - name: genvm-lint check
         run: genvm-lint check contracts/weatherquest.py
 
+      - name: Seed genvm SDK cache for the direct-mode harness
+        # genlayer-test==0.29.2 downloads `genvm-universal.tar.xz` and resolves
+        # the release tag via `releases/latest`. genvm v0.3.x renamed that asset
+        # to `genvm-runners-all.tar.xz`, so the auto-resolved `latest` (v0.3.0-rcN)
+        # 404s on a fresh runner and every direct-mode test errors during
+        # contract load. Pin the last release that still ships `genvm-universal.tar.xz`
+        # (v0.2.16) — it carries this contract's runner hash
+        # `1jb45aa8...` — into the harness cache dir so it never hits the network.
+        env:
+          GENV_PIN: v0.2.16
+        run: |
+          mkdir -p "$HOME/.cache/gltest-direct"
+          curl -fSL --retry 3 -o "$HOME/.cache/gltest-direct/genvm-universal-${GENV_PIN}.tar.xz" \
+            "https://github.com/genlayerlabs/genvm/releases/download/${GENV_PIN}/genvm-universal.tar.xz"
+          ls -lh "$HOME/.cache/gltest-direct"
+
       - name: Direct-mode tests
         run: pytest tests/direct/ -v
 
