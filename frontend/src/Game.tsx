@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import kaboom, { type KaboomCtx } from "kaboom";
+import { generateMap, levelTheme } from "./lib/maps";
 
 /**
  * WeatherGate — a 2D top-down mini RPG built on Kaboom.js.
@@ -21,24 +22,17 @@ const WORLD_H = ROWS * TILE; // 448
 const PLAYER_HALF = 11;
 const SPEED = 190; // px / second
 
+// Gate trigger box. A closed gate tile is centred on a grid cell, and the player is
+// physically stopped PLAYER_HALF + TILE/2 = 27px from that centre. The old trigger used
+// a 0.7*TILE (22px) radius, which sat *inside* that 27px standoff — so it could never
+// fire. Widen X just past the contact point so touching the gate opens the challenge,
+// and keep Y tight to a gate row so the solid wall directly above/below the gate stays
+// non-triggering. (The gate remains solid while closed, so Victory can't be bypassed.)
+const GATE_TRIGGER_X = TILE * 1.05; // ~33.6px — comfortably past the 27px contact point
+const GATE_TRIGGER_Y = TILE * 0.85; // ~27.2px — must be aligned to a gate row (rows 6-8)
+
 // Cell legend: "." grass  "#" tree/wall  "~" river  "G" gate  "V" victory zone
-function buildMap(): string[] {
-  const g: string[][] = [];
-  for (let r = 0; r < ROWS; r++) {
-    g[r] = [];
-    for (let c = 0; c < COLS; c++) {
-      const border = r === 0 || c === 0 || r === ROWS - 1 || c === COLS - 1;
-      g[r][c] = border ? "#" : ".";
-    }
-  }
-  // River lake (blocks movement) — a hazard in the upper-middle field.
-  for (let r = 3; r <= 5; r++) for (let c = 6; c <= 13; c++) g[r][c] = "~";
-  // Interior wall on column 16, with a 3-tile Magic Gate gap at rows 6..8.
-  for (let r = 1; r <= 12; r++) g[r][16] = r >= 6 && r <= 8 ? "G" : "#";
-  // Victory zone behind the gate (cols 17..20, rows 6..8).
-  for (let r = 6; r <= 8; r++) for (let c = 17; c <= 20; c++) g[r][c] = "V";
-  return g.map((row) => row.join(""));
-}
+// Layouts are generated per difficulty level in lib/maps.ts (see generateMap).
 
 interface Rect {
   x: number;
@@ -74,6 +68,8 @@ function cellsOf(map: string[], sym: string): Cell[] {
 }
 
 export interface GameProps {
+  /** Campaign level (1..10). Selects the generated map + storm theme. */
+  level?: number;
   /** When true the Magic Gate is unlocked: it stops blocking and recolors. */
   gateOpen?: boolean;
   /** Freeze player input (e.g. while the AI gate modal is open). */
@@ -85,6 +81,7 @@ export interface GameProps {
 }
 
 export default function Game({
+  level = 1,
   gateOpen = false,
   paused = false,
   onGateReached,
@@ -112,7 +109,7 @@ export default function Game({
       root,
       width: WORLD_W,
       height: WORLD_H,
-      background: [10, 14, 39],
+      background: levelTheme(level).tint,
       pixelDensity: 1,
       crisp: true,
       debug: false,
@@ -130,7 +127,7 @@ export default function Game({
     canvas.style.imageRendering = "pixelated";
     canvas.style.borderRadius = "12px";
 
-    const MAP = buildMap();
+    const MAP = generateMap(level);
     const gateCells = cellsOf(MAP, "G");
     const victoryCells = cellsOf(MAP, "V");
     blockersRef.current = blockersFor(MAP, gateOpenRef.current);
@@ -213,7 +210,7 @@ export default function Game({
         // Gate trigger: touching a *closed* gate opens the AI check (once).
         if (!gateOpenRef.current) {
           const atGate = gateCells.some(
-            (gc) => Math.abs(px - gc.cx) < TILE * 0.7 && Math.abs(py - gc.cy) < TILE * 0.7,
+            (gc) => Math.abs(px - gc.cx) < GATE_TRIGGER_X && Math.abs(py - gc.cy) < GATE_TRIGGER_Y,
           );
           if (atGate && promptArmed.current) {
             promptArmed.current = false;
@@ -253,7 +250,7 @@ export default function Game({
   useEffect(() => {
     gateOpenRef.current = gateOpen;
     const k = ctxRef.current;
-    const MAP = buildMap();
+    const MAP = generateMap(level);
     blockersRef.current = blockersFor(MAP, gateOpen);
     if (k) {
       // Recolor the gate green when it opens.
@@ -267,7 +264,7 @@ export default function Game({
 
   return (
     <div className="relative w-full max-w-3xl">
-      <div ref={rootRef} className="w-full overflow-hidden rounded-modal shadow-glow-purple" />
+      <div ref={rootRef} className="relative z-10 w-full overflow-hidden rounded-modal shadow-glow-purple" />
     </div>
   );
 }

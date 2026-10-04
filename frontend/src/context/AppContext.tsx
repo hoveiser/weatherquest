@@ -134,7 +134,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const connect = useCallback(async () => {
     dispatch({ type: "connect:start" });
     try {
-      const address = await contract.connectWallet();
+      const wallet = await contract.connectWallet();
+      const address = wallet.address;
       dispatch({ type: "connect:done", address });
       toast(`Connected ${shortAddr(address)}`, "success");
     } catch {

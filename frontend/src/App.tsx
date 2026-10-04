@@ -1,38 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import confetti from "canvas-confetti";
 import Game from "./Game";
 import GateModal from "./GateModal";
+import HUD from "./components/HUD";
+import LevelSelect from "./components/LevelSelect";
 import { getWeatherByCity, previewRisk } from "./lib/weather";
-import { submitAction } from "./lib/contract";
-import type { ActionResult, Quest, RiskAnalysis, WeatherSnapshot } from "./types";
+import {
+  completeLevel,
+  connectOnChainWallet,
+  connectWallet,
+  fetchCompletedLevels,
+  fetchGenBalance,
+} from "./lib/contract";
+import { fetchIPLocation, FALLBACK_LOCATION } from "./lib/geolocation";
+import { MAX_LEVEL, cityForLevel } from "./lib/maps";
+import type { ActionResult, LevelOutcome, RiskAnalysis, WalletState, WeatherSnapshot } from "./types";
 
-/** The city whose live weather gates the challenge (mirrors the contract's demo city). */
-const CITY = "London";
 const START_BALANCE = 25;
-
-/**
- * A minimal quest descriptor reused by the existing `submitAction` demo/heuristic
- * judgment (the same function the old dashboard used — the GenLayer contract and
- * its tests are untouched). Only `city` and `baseRewardGen` matter to the mock.
- */
-const GATE_QUEST: Quest = {
-  questId: "GATE-LONDON",
-  city: CITY,
-  creator: "player",
-  baseRewardGen: 10,
-  description: "Cross the Magic Gate",
-  createdAt: 0,
-  expiresAt: Number.MAX_SAFE_INTEGER,
-  status: "Active",
-  submissionCount: 0,
-};
-
-const TIER_COLOR: Record<string, string> = {
-  Low: "text-success",
-  Medium: "text-warning",
-  High: "text-primary",
-  Extreme: "text-danger",
-};
 
 // --- Optional WebAudio chime (no asset files; silently no-ops if unsupported) ---
 let audioCtx: AudioContext | null = null;
@@ -89,8 +74,7 @@ function useCountUp(value: number, duration = 900): number {
   useEffect(() => {
     const from = fromRef.current;
     if (from === value) return;
-    // Honour reduced-motion (and environments where rAF never ticks): snap straight to target.
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       fromRef.current = value;
       setDisplay(value);
       return;
@@ -113,67 +97,161 @@ function useCountUp(value: number, duration = 900): number {
   return display;
 }
 
+type Phase = "menu" | "playing";
+
 /**
- * WeatherGate game shell: the Kaboom 2D field + Tailwind cyberpunk HUD, with the
- * AI Gate Modal wired into the game's `onGateReached` seam. SUCCESS opens the
- * gate (green sprite + confetti + balance bump); FAIL shakes the modal and keeps
- * the gate closed. The contract/tests/deployment are unchanged.
+ * WeatherGate campaign shell.
+ *
+ * - Level-select hub (1-10) with "Already Conquered ✅" badges from campaign_progress.
+ * - Level 1 is themed to the player's IP-detected home city (fallback London).
+ * - Walking a level: touch the closed Magic Gate → AI gate challenge (complete_level)
+ *   → on success the gate opens → reach the ★ victory zone → "Level Up!" auto-advance.
+ * - HUD shows wallet (Demo Mode or connected GenLayer address), level, city, GEN balance.
+ * The GenLayer contract + its 22 tests are untouched; only the submit seam is reused.
  */
 export default function App() {
+  const [phase, setPhase] = useState<Phase>("menu");
+  const [wallet, setWallet] = useState<WalletState>({ mode: "demo", address: "", connecting: false });
+  const [homeCity, setHomeCity] = useState<string>(FALLBACK_LOCATION.city);
+  const [completed, setCompleted] = useState<number[]>([]);
   const [balance, setBalance] = useState(START_BALANCE);
   const displayBalance = useCountUp(balance);
+
+  const [currentLevel, setCurrentLevel] = useState(1);
+  const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
+  const [risk, setRisk] = useState<RiskAnalysis | null>(null);
+
   const [gateOpen, setGateOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [session, setSession] = useState(0); // bump to remount the modal fresh
+  const [session, setSession] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
-  const [weather, setWeather] = useState<WeatherSnapshot | null>(null);
-  const [risk, setRisk] = useState<RiskAnalysis | null>(null);
-  const passedRef = useRef(false);
+  const [levelUp, setLevelUp] = useState<{ from: number; to: string } | null>(null);
 
+  const passedRef = useRef(false);
+  const outcomeRef = useRef<LevelOutcome | null>(null);
+  const completedRef = useRef<number[]>([]);
+  completedRef.current = completed;
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const city = cityForLevel(currentLevel, homeCity);
+  const nextLevel = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find((l) => !completed.includes(l)) ?? 0;
+
+  // --- Boot: demo wallet + IP city + saved progress ------------------------
   useEffect(() => {
     let alive = true;
-    getWeatherByCity(CITY)
+    (async () => {
+      const w = await connectWallet();
+      if (!alive) return;
+      setWallet(w);
+      const [loc, done] = await Promise.all([fetchIPLocation(), fetchCompletedLevels(w)]);
+      if (!alive) return;
+      setHomeCity(loc.city);
+      setCompleted(done);
+      const start = w.mode === "onchain" ? await fetchGenBalance(w) : null;
+      if (alive && start != null) setBalance(start);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // --- Live weather for the active level's city ----------------------------
+  useEffect(() => {
+    if (phase !== "playing") return;
+    let alive = true;
+    setWeather(null);
+    setRisk(null);
+    getWeatherByCity(cityForLevel(currentLevel, homeCity))
       .then((w) => {
         if (!alive) return;
         setWeather(w);
         setRisk(previewRisk(w));
       })
-      .catch(() => {
-        if (alive) setBanner("Weather service unavailable — showing offline preview.");
-      });
+      .catch(() => alive && setBanner("Weather service unavailable — showing offline preview."));
     return () => {
       alive = false;
     };
+  }, [phase, currentLevel, homeCity]);
+
+  useEffect(() => () => { if (advanceTimer.current) clearTimeout(advanceTimer.current); }, []);
+
+  const enterLevel = useCallback(
+    (level: number) => {
+      if (advanceTimer.current) clearTimeout(advanceTimer.current);
+      passedRef.current = false;
+      outcomeRef.current = null;
+      setSession((s) => s + 1);
+      setCurrentLevel(level);
+      setModalOpen(false);
+      setPaused(false);
+      setLevelUp(null);
+      // Already-conquered levels start with the gate open (a quick replay stroll).
+      const done = completedRef.current.includes(level);
+      setGateOpen(done);
+      setBanner(
+        done
+          ? `Level ${level} already conquered — walk into the ★ zone to move on.`
+          : "⛩ Reach the gate and answer the AI challenge to unlock it.",
+      );
+      setPhase("playing");
+    },
+    [],
+  );
+
+  const goMenu = useCallback(() => {
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    setLevelUp(null);
+    setModalOpen(false);
+    setPaused(false);
+    setBanner(null);
+    setPhase("menu");
   }, []);
 
   // Player touched the closed gate → pause and open the AI challenge.
   const handleGate = useCallback(() => {
     if (gateOpen) return;
     passedRef.current = false;
-    ensureAudio(); // unlock audio inside the input frame so the later chime plays
+    ensureAudio();
     setSession((s) => s + 1);
     setModalOpen(true);
     setPaused(true);
   }, [gateOpen]);
 
-  // Run the (mock/on-chain) judgment. Celebration lives in handleResult.
-  const handleSubmit = useCallback(async (action: string): Promise<ActionResult> => {
-    ensureAudio();
-    return submitAction(GATE_QUEST, action);
-  }, []);
+  // Run the (demo/on-chain) judgment for this campaign level.
+  const handleSubmit = useCallback(
+    async (action: string): Promise<ActionResult> => {
+      ensureAudio();
+      const outcome = await completeLevel({ level: currentLevel, homeCity, action, wallet });
+      outcomeRef.current = outcome;
+      return outcome;
+    },
+    [currentLevel, homeCity, wallet],
+  );
 
-  // Verdict known: reward + confetti + chime on pass; the modal handles the shake on fail.
+  // Verdict known: reward + confetti + chime on pass; the modal shakes on fail.
   const handleResult = useCallback((result: ActionResult) => {
+    const outcome = outcomeRef.current;
     if (result.success) {
       passedRef.current = true;
-      setBalance((b) => b + result.payoutGen);
+      const gained = outcome && !outcome.alreadyCompleted ? outcome.payoutGen : 0;
+      if (outcome && outcome.level) {
+        setCompleted((prev) => (prev.includes(outcome.level) ? prev : [...prev, outcome.level].sort((a, b) => a - b)));
+      }
+      if (wallet.mode === "demo") {
+        setBalance((b) => b + gained);
+      } else {
+        void (async () => {
+          const bal = await fetchGenBalance(wallet);
+          if (bal != null) setBalance(bal);
+        })();
+      }
       fireConfetti();
       playChime();
     } else {
       passedRef.current = false;
     }
-  }, []);
+  }, [wallet]);
 
   // Closing the modal: if the challenge passed, unlock the gate and resume.
   const handleModalClose = useCallback(() => {
@@ -181,27 +259,67 @@ export default function App() {
     setPaused(false);
     if (passedRef.current) {
       setGateOpen(true);
-      setBanner("🟢 Gate open! Walk right into the ★ victory zone.");
+      setBanner("🟢 Gate open! Walk into the ★ victory zone to advance.");
     }
   }, []);
 
+  // Reached the victory zone: celebrate, show "Level Up!", auto-advance.
   const handleVictory = useCallback(() => {
     fireConfetti();
-    setBanner("🏆 Victory! You crossed the AI-gated challenge.");
+    if (currentLevel >= MAX_LEVEL) {
+      setBanner("🏆 Campaign complete — you conquered every weather world!");
+      return;
+    }
+    const next = currentLevel + 1;
+    const nextCity = cityForLevel(next, homeCity);
+    setLevelUp({ from: currentLevel, to: nextCity });
+    advanceTimer.current = setTimeout(() => enterLevel(next), 1600);
+  }, [currentLevel, homeCity, enterLevel]);
+
+  // Wallet connect / disconnect (Demo <-> GenLayer on-chain).
+  const handleConnect = useCallback(async () => {
+    setWallet((w) => ({ ...w, connecting: true }));
+    try {
+      const w = await connectOnChainWallet();
+      setWallet(w);
+      const [done, bal] = await Promise.all([fetchCompletedLevels(w), fetchGenBalance(w)]);
+      setCompleted(done);
+      if (bal != null) setBalance(bal);
+      setBanner(`⛓ Connected ${w.address.slice(0, 6)}…${w.address.slice(-4)} — playing on-chain.`);
+    } catch (e) {
+      setWallet((w) => ({ ...w, connecting: false }));
+      setBanner(e instanceof Error ? `⚠ ${e.message}` : "Wallet connection failed.");
+    }
   }, []);
 
-  // Dev-only seam so the AI-gate modal + reward flow can be exercised directly
-  // without walking (the Kaboom loop needs a focused rAF tab). Vite replaces
-  // `import.meta.env.DEV` with `false` in production, so this is stripped from
+  const handleDisconnect = useCallback(async () => {
+    const w = await connectWallet();
+    setWallet(w);
+    setCompleted(await fetchCompletedLevels(w));
+    setBalance(START_BALANCE);
+    setBanner("🎮 Back in Demo Mode — no wallet needed.");
+  }, []);
+
+  // Dev-only seams so the AI-gate modal, victory->advance, and level jumps can be
+  // exercised directly without pixel-perfect canvas walking. Vite replaces
+  // `import.meta.env.DEV` with `false` in production, so these are stripped from
   // the built bundle and never reachable by reviewers on GitHub Pages.
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    const w = window as unknown as { __wgOpenGate?: () => void };
+    const w = window as unknown as {
+      __wgOpenGate?: () => void;
+      __wgWin?: () => void;
+      __wgPlay?: (level: number) => void;
+    };
     w.__wgOpenGate = handleGate;
+    w.__wgWin = handleVictory;
+    w.__wgPlay = enterLevel;
     return () => {
       delete w.__wgOpenGate;
+      delete w.__wgWin;
+      delete w.__wgPlay;
     };
-  }, [handleGate]);
+  }, [handleGate, handleVictory, enterLevel]);
 
   return (
     <div className="flex min-h-full items-center justify-center p-4">
@@ -209,62 +327,127 @@ export default function App() {
         {/* Title */}
         <div className="mb-3 text-center">
           <h1 className="text-2xl font-black tracking-tight neon-text">WeatherGate</h1>
-          <p className="text-xs text-muted">A 2D AI-gated mini RPG · move with WASD / arrow keys</p>
+          <p className="text-xs text-muted">A 2D AI-gated weather RPG · move with WASD / arrow keys</p>
         </div>
 
-        {/* Game canvas (Kaboom mounts its canvas into this via Game.tsx) */}
-        <Game
-          gateOpen={gateOpen}
-          paused={paused}
-          onGateReached={handleGate}
-          onVictoryReached={handleVictory}
-        />
-
-        {/* HUD overlay — cyberpunk panels floating on top of the canvas */}
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-3 p-3">
-          {/* Top-left: GEN balance */}
-          <div className="pointer-events-auto glass rounded-card px-3 py-2 shadow-card">
-            <div className="text-[10px] uppercase tracking-widest text-muted">GEN Balance</div>
-            <div className="flex items-baseline gap-1 font-mono text-lg font-bold text-primary">
-              {displayBalance.toFixed(1)}
-              <span className="text-xs text-muted">GEN</span>
+        {phase === "menu" ? (
+          <div className="relative">
+            {/* Compact wallet/balance bar on the menu */}
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="glass rounded-card px-3 py-2 shadow-card">
+                <span
+                  className={`chip ${wallet.mode === "onchain" ? "bg-success/15 text-success" : "bg-white/10 text-muted"}`}
+                >
+                  {wallet.mode === "onchain" ? "⛓ On-chain" : "🎮 Demo Mode"}
+                </span>
+                <span className="ml-2 font-mono text-sm text-ink">
+                  {displayBalance.toFixed(1)} <span className="text-muted">GEN</span>
+                </span>
+              </div>
+              {wallet.mode === "demo" ? (
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => void handleConnect()}
+                  disabled={wallet.connecting}
+                  className="rounded-pill bg-gradient-to-r from-primary to-secondary px-4 py-2 text-xs font-bold text-white disabled:opacity-60"
+                >
+                  {wallet.connecting ? "Connecting…" : "Connect GenLayer Wallet"}
+                </motion.button>
+              ) : (
+                <button
+                  onClick={() => void handleDisconnect()}
+                  className="rounded-pill border border-white/15 bg-white/5 px-4 py-2 text-xs font-semibold text-ink hover:bg-white/10"
+                >
+                  Disconnect
+                </button>
+              )}
             </div>
-          </div>
 
-          {/* Top-right: live weather widget synced to the challenge city */}
-          <div className="pointer-events-auto glass rounded-card px-3 py-2 text-right shadow-card">
-            <div className="text-[10px] uppercase tracking-widest text-muted">{CITY} · live</div>
-            {weather && risk ? (
-              <>
-                <div className="text-sm font-semibold text-ink">{weather.condition}</div>
-                <div className={`text-xs font-bold ${TIER_COLOR[risk.risk_tier] ?? "text-ink"}`}>
-                  {risk.multiplier.toFixed(1)}x · {risk.risk_tier}
-                </div>
-              </>
-            ) : (
-              <div className="text-sm text-muted">loading weather…</div>
+            <LevelSelect homeCity={homeCity} completed={completed} nextLevel={nextLevel} onPlay={enterLevel} />
+
+            {banner && (
+              <div className="mt-4 flex justify-center">
+                <span className="glass rounded-pill px-3 py-1 text-[11px] text-muted">{banner}</span>
+              </div>
             )}
           </div>
-        </div>
+        ) : (
+          <div className="relative">
+            {/* Game canvas (Kaboom mounts its canvas here). Keyed by level so the map regenerates. */}
+            <Game
+              key={`${currentLevel}-${session}`}
+              level={currentLevel}
+              gateOpen={gateOpen}
+              paused={paused}
+              onGateReached={handleGate}
+              onVictoryReached={handleVictory}
+            />
 
-        {/* Controls hint / status banner */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-2">
-          <span className="glass rounded-pill px-3 py-1 text-[11px] text-muted">
-            {banner ?? "⛩ reach the gate · ★ victory zone"}
-          </span>
-        </div>
+            <HUD
+              mode={wallet.mode}
+              address={wallet.address}
+              connecting={wallet.connecting}
+              onConnect={() => void handleConnect()}
+              onDisconnect={() => void handleDisconnect()}
+              level={currentLevel}
+              city={city}
+              displayBalance={displayBalance}
+              weather={weather}
+              risk={risk}
+            />
 
-        {/* AI Gate Modal */}
-        <GateModal
-          key={session}
-          open={modalOpen}
-          city={CITY}
-          weather={weather}
-          risk={risk}
-          onSubmit={handleSubmit}
-          onResult={handleResult}
-          onClose={handleModalClose}
-        />
+            {/* Back-to-menu + status banner */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-center justify-between gap-2 p-2">
+              <button
+                onClick={goMenu}
+                className="pointer-events-auto rounded-pill bg-black/40 px-3 py-1 text-[11px] text-ink backdrop-blur hover:bg-black/60"
+              >
+                ← Levels
+              </button>
+              <span className="glass rounded-pill px-3 py-1 text-[11px] text-muted">
+                {banner ?? "⛩ reach the gate · ★ victory zone"}
+              </span>
+            </div>
+
+            {/* "Level Up!" auto-advance flourish */}
+            <AnimatePresence>
+              {levelUp && (
+                <motion.div
+                  className="pointer-events-none absolute inset-0 z-[80] flex flex-col items-center justify-center rounded-modal bg-black/70 backdrop-blur-sm"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <motion.div
+                    initial={{ scale: 0.4, y: 20 }}
+                    animate={{ scale: 1, y: 0 }}
+                    transition={{ type: "spring", damping: 12, stiffness: 260 }}
+                    className="text-center"
+                  >
+                    <p className="text-sm uppercase tracking-[0.4em] text-secondary">Level {levelUp.from} conquered</p>
+                    <h2 className="mt-2 text-4xl font-black text-[#fff]">
+                      LEVEL UP <span className="text-primary">→</span>{" "}
+                      <span className="neon-text">{levelUp.to}</span>
+                    </h2>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* AI Gate Modal (challenge for the current level's city) */}
+            <GateModal
+              key={session}
+              open={modalOpen}
+              city={city}
+              weather={weather}
+              risk={risk}
+              onSubmit={handleSubmit}
+              onResult={handleResult}
+              onClose={handleModalClose}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

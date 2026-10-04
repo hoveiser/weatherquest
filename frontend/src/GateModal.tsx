@@ -42,9 +42,13 @@ const TIER_BADGE: Record<string, string> = {
 };
 
 // Re-mounting with a new key replays the shake on every failed attempt.
+// Both states MUST restate the base transform: `animate` targets a variant NAME, and
+// Framer Motion only animates properties present in the active variant. Because the card
+// starts (initial) at opacity 0 / scale 0.85 / y 24, variants that listed only `x` left the
+// card permanently transparent — this was the "backdrop shows but content is hidden" bug.
 const shake: Variants = {
-  idle: { x: 0 },
-  shake: { x: [-6, 6, -6, 6, -3, 3, 0] },
+  idle: { x: 0, scale: 1, opacity: 1, y: 0 },
+  shake: { x: [-6, 6, -6, 6, -3, 3, 0], scale: 1, opacity: 1, y: 0 },
 };
 
 export default function GateModal({ open, city, weather, risk, onSubmit, onResult, onClose }: Props) {
@@ -96,7 +100,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -115,7 +119,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
             variants={shake}
             initial={{ scale: 0.85, opacity: 0, y: 24 }}
             animate={mode === 'verdict' && result && !result.success ? 'shake' : 'idle'}
-            transition={{ type: 'spring', damping: 18, stiffness: 320, scale: { duration: 0.25 }, opacity: { duration: 0.2 } }}
+            transition={{ type: 'spring', damping: 18, stiffness: 320, scale: { duration: 0.25 }, opacity: { duration: 0.2 }, x: { duration: 0.5, ease: 'easeInOut' } }}
             exit={{ scale: 0.9, opacity: 0, transition: { duration: 0.18 } }}
             className={`relative w-full max-w-lg rounded-modal border bg-card p-6 shadow-glow-purple ${
               mode === 'verdict' && result?.success ? 'border-success/60 shadow-glow-green' : ''

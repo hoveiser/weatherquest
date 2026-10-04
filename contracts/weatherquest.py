@@ -50,6 +50,14 @@ MULT_MIN = 100                   # 1.00x, stored as hundredths (integer)
 MULT_MAX = 500                   # 5.00x
 MULT_TOLERANCE = 100             # validators may differ by up to 1.00x
 
+# --- Progressive campaign (single-player RPG levels) ------------------------
+MAX_LEVEL = 10
+# Base GEN reward per campaign level (index = level; slot 0 unused). Easy levels
+# (1-3) give generous payouts relative to difficulty to onboard the player; the
+# Hard/Extreme levels (8-10) pay large absolute sums for surviving severe weather.
+# Final Reward = LEVEL_BASE_GEN[level] * weather multiplier (1.0x-5.0x).
+LEVEL_BASE_GEN = (0, 10, 12, 15, 20, 25, 30, 35, 50, 75, 100)
+
 # Quest status lifecycle
 STATUS_ACTIVE = "Active"
 STATUS_COMPLETED = "Completed"
@@ -146,6 +154,41 @@ def _fmt_atto(atto):
 	"""Format atto-gen as a GEN string with 4 decimals, using integer math only."""
 	frac = atto % GEN
 	return f"{atto // GEN}.{frac // (GEN // 10000):04d}"
+
+
+def _validate_level(level):
+	"""Coerce + bounds-check a campaign level (1..MAX_LEVEL). Deterministic."""
+	try:
+		lvl = int(level)
+	except (ValueError, TypeError):
+		raise gl.vm.UserError(f"{ERROR_EXPECTED} Level must be an integer")
+	if lvl < 1 or lvl > MAX_LEVEL:
+		raise gl.vm.UserError(f"{ERROR_EXPECTED} Level must be 1..{MAX_LEVEL}")
+	return lvl
+
+
+def _level_base_atto(level):
+	"""Deterministic base reward (atto GEN) escrowed by the campaign for a level."""
+	return LEVEL_BASE_GEN[level] * GEN
+
+
+def _level_difficulty(level):
+	"""Difficulty band used by the frontend to theme the map + judge strictness."""
+	if level <= 3:
+		return "Easy"
+	if level <= 7:
+		return "Medium"
+	return "Hard"
+
+
+def _level_key(account, level):
+	"""Canonical hasCompletedLevel[wallet][level] key.
+
+	str(Address) casing can differ between the transaction sender and an address
+	value passed into a view, so the account part is lowercased to keep the write
+	path (complete_level) and the read paths (views) byte-identical.
+	"""
+	return f"{str(account).lower()}|{level}"
 
 
 def _handle_leader_error(leaders_res, leader_fn):
@@ -278,13 +321,23 @@ def _analyze_weather(city):
 	}
 
 
-def _judge_action(summary, tier, action):
-	"""LLM decides whether the action is safe given the risk tier. Fail-closed."""
+def _judge_action(summary, tier, action, level=0):
+	"""LLM decides whether the action is safe given the risk tier. Fail-closed.
+
+	`level` (0 = marketplace quest, no extra context) lets the campaign raise the
+	bar on Hard/Extreme levels. The core sentence stays intact so validator prompts
+	are identical for the same inputs.
+	"""
+	difficulty_note = ""
+	if level >= 8:
+		difficulty_note = " This is a HIGH-DIFFICULTY campaign level (Hard/Extreme): be strict — only clearly safe, well-adapted actions pass. "
+	elif level >= 4:
+		difficulty_note = " This is a MEDIUM-DIFFICULTY campaign level: expect moderate strictness. "
 	prompt = (
 		f"A bounty quest takes place under these conditions: {summary} "
 		f"(risk tier: {tier}). A player wants to attempt: \"{action}\". Judge "
 		"whether performing this action in these conditions is reasonably SAFE "
-		"and would succeed. Cautious/adapted actions in Extreme weather can still "
+		"and would succeed." + difficulty_note + " Cautious/adapted actions in Extreme weather can still "
 		"succeed; reckless actions can fail. Return STRICT JSON exactly: "
 		'{"success": boolean, "reasoning": string} where reasoning is one '
 		"sentence (<= 240 chars)."
@@ -308,11 +361,12 @@ def _judge_action(summary, tier, action):
 	return {"success": success, "reasoning": reasoning}
 
 
-def _resolve_submission(city, action):
+def _resolve_submission(city, action, level=0):
 	"""Leader body: derive weather multiplier AND judge the action in a single
-	nondeterministic round. Returns decision fields only."""
+	nondeterministic round. Returns decision fields only. `level` (0 for marketplace
+	quests) only scales AI judgment strictness; it is deterministic input."""
 	analysis = _analyze_weather(city)
-	judgment = _judge_action(analysis["summary"], analysis["risk_tier"], action)
+	judgment = _judge_action(analysis["summary"], analysis["risk_tier"], action, level)
 	return {
 		"multiplier": analysis["multiplier"],
 		"risk_tier": analysis["risk_tier"],
@@ -352,11 +406,20 @@ class WeatherQuest(gl.Contract):
 	failed_count: u256
 	total_payout_atto: u256
 
+	# Campaign anti-cheat — the Solidity-style hasCompletedLevel[addr][level] bool,
+	# flattened to a consensus-friendly composite key "<address>|<level>".
+	level_completed: TreeMap[str, bool]
+	# campaign analytics
+	levels_completed: u256
+	campaign_payout_atto: u256
+
 	def __init__(self):
 		self.quest_count = u256(0)
 		self.completed_count = u256(0)
 		self.failed_count = u256(0)
 		self.total_payout_atto = u256(0)
+		self.levels_completed = u256(0)
+		self.campaign_payout_atto = u256(0)
 
 	# -- Liquidity: fund the house so multipliers > 1x can be paid out ------
 	@gl.public.write.payable
@@ -506,6 +569,122 @@ class WeatherQuest(gl.Contract):
 			self.failed_count = self.failed_count + 1
 			result["payout"] = 0
 		return result
+
+	# -- Progressive campaign ------------------------------------------------
+	@gl.public.write
+	def complete_level(self, level: u256, city: str, action: str) -> dict:
+		"""AI-gated campaign level. The caller's wallet address is the identity, so
+		each (wallet, level) can only be *completed* once — replay is rejected. The
+		weather multiplier is derived for `city` (Level 1 = the player's real IP city)
+		and the AI judges `action`; on success the contract pays
+		base(level) * multiplier GEN from the house and marks the level done."""
+		lvl = _validate_level(level)
+
+		city_clean = "" if city is None else str(city).strip()
+		if len(city_clean) == 0:
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} City must not be empty")
+		if len(city_clean) > CITY_MAX:
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} City too long (max {CITY_MAX})")
+
+		action_clean = "" if action is None else str(action).strip()
+		if len(action_clean) == 0:
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} Action must not be empty")
+		if len(action_clean) > ACTION_MAX:
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} Action too long (max {ACTION_MAX})")
+
+		sender = gl.message.sender_address
+		key = _level_key(sender, lvl)
+		if self.level_completed.get(key, False):
+			raise gl.vm.UserError(f"{ERROR_EXPECTED} Level already completed")
+
+		def leader_fn():
+			return _resolve_submission(city_clean, action_clean, lvl)
+
+		def validator_fn(leader_res):
+			if not isinstance(leader_res, gl.vm.Return):
+				return _handle_leader_error(leader_res, lambda: _resolve_submission(city_clean, action_clean, lvl))
+			try:
+				mine = _resolve_submission(city_clean, action_clean, lvl)
+			except Exception:
+				return False
+			ldr = leader_res.calldata
+			if ldr["risk_tier"] != mine["risk_tier"]:
+				return False
+			if abs(ldr["multiplier"] - mine["multiplier"]) > MULT_TOLERANCE:
+				return False
+			return bool(ldr["success"]) == bool(mine["success"])
+
+		res = gl.vm.run_nondet(leader_fn, validator_fn)
+
+		base = _level_base_atto(lvl)
+		payout = u256((int(base) * int(res["multiplier"])) // 100)
+		result = self._format_analysis(res)
+		result["success"] = bool(res["success"])
+		result["judgment_reasoning"] = res["judgment_reasoning"]
+		result["level"] = lvl
+		result["difficulty"] = _level_difficulty(lvl)
+		result["base_reward_atto"] = int(base)
+		result["base_reward_gen"] = _fmt_atto(base)
+
+		if res["success"]:
+			if self.balance < payout:
+				raise gl.vm.UserError(f"{ERROR_EXPECTED} Contract balance insufficient for payout")
+			gl.get_contract_at(sender).emit_transfer(value=payout, on="finalized")
+			self.level_completed[key] = True
+			self.levels_completed = self.levels_completed + 1
+			self.campaign_payout_atto = self.campaign_payout_atto + payout
+			result["payout"] = int(payout)
+		else:
+			# Failed judgment: no reward and NOT marked completed, so the player can
+			# retry the level with a safer action.
+			result["payout"] = 0
+		return result
+
+	# -- Campaign read views ---------------------------------------------------
+	@gl.public.view
+	def has_completed_level(self, account: Address, level: u256) -> bool:
+		lvl = _validate_level(level)
+		return bool(self.level_completed.get(_level_key(account, lvl), False))
+
+	@gl.public.view
+	def get_completed_levels(self, account: Address) -> list:
+		done = []
+		for lvl in range(1, MAX_LEVEL + 1):
+			if self.level_completed.get(_level_key(account, lvl), False):
+				done.append(lvl)
+		return done
+
+	@gl.public.view
+	def get_level_reward(self, level: u256) -> dict:
+		lvl = _validate_level(level)
+		base = _level_base_atto(lvl)
+		max_atto = (int(base) * MULT_MAX) // 100
+		return {
+			"level": lvl,
+			"difficulty": _level_difficulty(lvl),
+			"base_reward_atto": int(base),
+			"base_reward_gen": _fmt_atto(base),
+			"max_payout_atto": max_atto,
+			"max_payout_gen": _fmt_atto(max_atto),
+		}
+
+	@gl.public.view
+	def campaign_progress(self, account: Address) -> dict:
+		done = []
+		next_level = 0
+		for lvl in range(1, MAX_LEVEL + 1):
+			if self.level_completed.get(_level_key(account, lvl), False):
+				done.append(lvl)
+			elif next_level == 0:
+				next_level = lvl
+		return {
+			"account": str(account),
+			"completed": done,
+			"completed_count": len(done),
+			"next_level": next_level,
+			"max_level": MAX_LEVEL,
+			"campaign_payout_atto": int(self.campaign_payout_atto),
+		}
 
 	@gl.public.write
 	def claim_expired_quest(self, quest_id: str):

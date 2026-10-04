@@ -136,16 +136,19 @@ npx tsc --noEmit   # standalone strict type-check (must be 0 errors)
 npm run preview    # serve the built bundle
 ```
 
-**Demo mode is the default** so reviewers get the full, interactive game without a funded wallet. Demo
+**Demo mode is the default** so reviewers get the full, interactive 10-level campaign without a funded
+wallet. You pick a level from the hub, walk to the Magic Gate, answer the AI challenge, and a victory
+auto-advances you to the next (harder) world. Level 1 is themed to your IP-detected home city. Demo
 settlement mirrors the on-chain rules and reads the *same* Open-Meteo data the contract uses, but
-computes the multiplier/payout locally. To play against the **deployed contract**, set
-`VITE_CONTRACT_ADDRESS` + `VITE_ONCHAIN=true` — the call signatures in `lib/contract.ts` already match
-`contracts/weatherquest.py`, so going live is a swap, not a rewrite.
+computes the multiplier/payout locally (progress persists in `localStorage`). To play against the
+**deployed contract**, click **"Connect GenLayer Wallet"** in the HUD — the same call sites drive real
+on-chain `complete_level` / `campaign_progress` through the official `genlayer-js` SDK (`lib/genlayer.ts`,
+loaded lazily and code-split out of the demo bundle).
 
 | Var | Effect |
 |-----|--------|
 | `VITE_CONTRACT_ADDRESS` | Deployed contract address. |
-| `VITE_ONCHAIN=true` | Flip `contract.ts` to the on-chain seam (requires the GenLayer JS SDK wired in — see Task 7 in `SUBMISSION.md`). |
+| `VITE_ONCHAIN=true` | Start in on-chain mode by default (the in-game **"Connect GenLayer Wallet"** button toggles it at runtime via the `genlayer-js` SDK). |
 
 ## 7. Testing
 
@@ -239,15 +242,16 @@ because image-generation/Pillow were unavailable in the build sandbox.
 ## 10. Deployment
 
 - **Contract → GenLayer StudioNet: ✅ DEPLOYED.**
-  ### `0x0B648Bd000cAfb84855fE681A584339ca31d8894`
-  (tx `ACCEPTED`, validators `AGREE`; verified with `genlayer schema` + a live
-  `contract_balance` call). Re-deploy any time with `scripts/deploy.sh`, which
+  ### `0xA027635817B54e9b54dC0944b511399140EA6Ed9`
+  (tx `0xec301940…231266bf5`, `ACCEPTED`, 5/5 validators; includes the progressive-campaign
+  methods `complete_level`, `has_completed_level`, `get_completed_levels`, `get_level_reward`,
+  and `campaign_progress`). Re-deploy any time with `scripts/deploy.sh`, which
   imports the key from `.env` and publishes `contracts/weatherquest.py` to
   `studionet`. Studio explorer: https://studio.genlayer.com.
 - **Frontend → GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow. *(Live URL: **[TBD]** in `SUBMISSION.md`.)*
 
-To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x0B648Bd000cAfb84855fE681A584339ca31d8894`
+To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0xA027635817B54e9b54dC0944b511399140EA6Ed9`
 and `VITE_ONCHAIN=true` in `frontend/.env` (see §6).
 
 See `SUBMISSION.md` for the fill-in submission fields and the verification outcome summary, and
@@ -255,9 +259,13 @@ See `SUBMISSION.md` for the fill-in submission fields and the verification outco
 
 ## 11. Known limitations
 
-- **Demo mode ships on by default.** Live on-chain settlement requires the GenLayer
-  JS SDK wired into `lib/contract.ts` (the seam and signatures are ready; the
-  contract is already deployed — see §10).
+- **Demo mode ships on by default** so the full 10-level campaign is playable with no funded
+  wallet (progress persists in `localStorage`). A **"Connect GenLayer Wallet"** button switches
+  the same call sites to **real on-chain play** through the official `genlayer-js` SDK
+  (`lib/genlayer.ts`, dynamically imported so it never bloats the demo bundle): it reads
+  `campaign_progress` for conquered-level badges, shows the live GEN balance + wallet address in
+  the HUD, and settles `complete_level` through validator consensus. On-chain play needs an
+  injected EIP-1193 wallet (e.g. MetaMask).
 - The client-side risk preview is explicitly labelled "preview"; it is *not* the authoritative
   on-chain multiplier.
 - The game canvas, confetti, and count-up run on `requestAnimationFrame` and therefore pause when the

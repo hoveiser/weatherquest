@@ -5,6 +5,17 @@ import sys
 GEN = 10**18
 
 
+def hex_addr(account):
+    """Render a fixture account (raw bytes) as the 0x-hex string a real caller
+    would pass to an Address-typed method. The direct VM exposes fixture accounts
+    as bytes; the contract stringifies ``gl.message.sender_address`` as hex, so
+    view lookups must use the same hex form (the contract lowercases the key, so
+    checksum vs lowercase is reconciled inside the contract)."""
+    if isinstance(account, (bytes, bytearray)):
+        return "0x" + bytes(account).hex()
+    return str(account)
+
+
 def warp(direct_vm, timestamp):
     """Advance the VM clock for time-based reverts.
 

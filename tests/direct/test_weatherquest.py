@@ -10,6 +10,7 @@ tests against a real environment.
 import pytest
 from conftest import (
     GEN, deploy, make_quest, mock_weather, mock_llm_analysis, mock_llm_judgment, warp,
+    hex_addr,
 )
 
 
@@ -218,3 +219,128 @@ def test_claim_expired_returns_funds(direct_vm, direct_deploy, direct_alice):
     c.claim_expired_quest(qid)
     assert c.get_quest(qid)["status"] == "Claimed"
     assert int(c.contract_balance()) == bal_after_create  # 10 out, 10 back
+
+
+# --- Progressive campaign: complete_level + hasCompletedLevel ---------------
+def test_complete_level_success_pays_and_marks(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    res = c.complete_level(1, "London", "Take shelter indoors")
+    assert res["success"] is True
+    assert res["level"] == 1
+    assert res["difficulty"] == "Easy"
+    assert int(res["payout"]) == 20 * GEN  # 10 GEN base * 2.0x weather multiplier
+    assert c.has_completed_level(hex_addr(direct_bob), 1) is True
+    assert c.get_completed_levels(hex_addr(direct_bob)) == [1]
+    prog = c.campaign_progress(hex_addr(direct_bob))
+    assert prog["completed_count"] == 1
+    assert prog["next_level"] == 2
+    assert int(prog["campaign_payout_atto"]) == 20 * GEN
+
+
+def test_complete_level_replay_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    c.complete_level(1, "London", "Take shelter indoors")
+    # Anti-cheat: the same wallet cannot complete the same level twice.
+    with direct_vm.expect_revert("Level already completed"):
+        c.complete_level(1, "London", "Take shelter indoors")
+
+
+def test_complete_level_fail_not_marked_retryable(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=4.0, tier="Extreme")
+    mock_llm_judgment(direct_vm, success=False)
+    direct_vm.sender = direct_bob
+    res = c.complete_level(9, "London", "Sprint through the storm")
+    assert res["success"] is False
+    assert int(res["payout"]) == 0
+    assert c.has_completed_level(hex_addr(direct_bob), 9) is False
+    # A failed level is NOT marked complete, so replay is still allowed — the
+    # anti-cheat guard only fires once a level actually succeeds. (The direct-mode
+    # judge mock is global, so this second attempt also fails; the assertion is
+    # that it does NOT revert with "Level already completed".)
+    res2 = c.complete_level(9, "London", "Wait indoors until the storm passes")
+    assert res2["success"] is False
+    assert c.has_completed_level(hex_addr(direct_bob), 9) is False
+
+
+def test_complete_level_distinct_levels_are_independent(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=1.5, tier="Low")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    c.complete_level(1, "London", "Walk")
+    c.complete_level(2, "London", "Walk")  # different level -> not a replay
+    assert c.get_completed_levels(hex_addr(direct_bob)) == [1, 2]
+    assert c.campaign_progress(hex_addr(direct_bob))["next_level"] == 3
+
+
+def test_complete_level_invalid_level_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("Level must be 1..10"):
+        c.complete_level(0, "London", "Wait")
+    with direct_vm.expect_revert("Level must be 1..10"):
+        c.complete_level(11, "London", "Wait")
+
+
+def test_complete_level_empty_city_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("City must not be empty"):
+        c.complete_level(1, "   ", "Wait")
+
+
+def test_complete_level_empty_action_reverts(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("Action must not be empty"):
+        c.complete_level(1, "London", "   ")
+
+
+def test_complete_level_requires_funding(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice, house=1)  # house holds only 1 GEN
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    # L1 base 10 GEN * 2.0x = 20 GEN payout > 1 GEN house -> fail-closed revert.
+    with direct_vm.expect_revert("Contract balance insufficient"):
+        c.complete_level(1, "London", "Take shelter indoors")
+    assert c.has_completed_level(hex_addr(direct_bob), 1) is False  # revert left no state
+
+
+def test_complete_level_per_wallet_isolation(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm)
+    mock_llm_analysis(direct_vm, multiplier=1.5, tier="Low")
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    c.complete_level(1, "London", "Walk")
+    # A different wallet has its own progress (hasCompletedLevel[bob][1] != [alice][1]).
+    assert c.has_completed_level(hex_addr(direct_alice), 1) is False
+    assert c.get_completed_levels(hex_addr(direct_alice)) == []
+
+
+def test_get_level_reward_progressive_table(direct_vm, direct_deploy, direct_alice):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    l1 = c.get_level_reward(1)
+    assert l1["difficulty"] == "Easy"
+    assert int(l1["base_reward_atto"]) == 10 * GEN
+    assert int(l1["max_payout_atto"]) == 50 * GEN   # 10 * 5.0x
+    l5 = c.get_level_reward(5)
+    assert l5["difficulty"] == "Medium"
+    assert int(l5["base_reward_atto"]) == 25 * GEN
+    l10 = c.get_level_reward(10)
+    assert l10["difficulty"] == "Hard"
+    assert int(l10["base_reward_atto"]) == 100 * GEN
+    assert int(l10["max_payout_atto"]) == 500 * GEN  # 100 * 5.0x

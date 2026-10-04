@@ -47,19 +47,24 @@ WeatherQuest — WeatherGate: AI-Gated 2D Weather RPG
    - `pytest tests/direct/ -v` — **22 direct-mode contract tests, all passing**.
      Setup (see README §7): `pip uninstall -y genlayer` (the public `genlayer` 0.0.1
      placeholder shadows the real SDK), then `pip install genlayer-py==0.16.3 genlayer-test==0.29.2`.
-7. **To play against the deployed contract** instead of the local demo: set
-   `VITE_CONTRACT_ADDRESS=0x0B648Bd000cAfb84855fE681A584339ca31d8894` and `VITE_ONCHAIN=true` in
-   `frontend/.env` (the on-chain call signatures already match the contract).
+7. **To play against the deployed contract** instead of the local demo: click **"Connect GenLayer
+   Wallet"** in the game (uses the `genlayer-js` SDK + an injected EIP-1193 wallet such as MetaMask),
+   or set `VITE_CONTRACT_ADDRESS=0xA027635817B54e9b54dC0944b511399140EA6Ed9` and `VITE_ONCHAIN=true`
+   in `frontend/.env` (the on-chain call signatures already match the contract).
 
-> **Recording tip:** in `npm run dev` you can open the modal without walking by running
-> `window.__wgOpenGate()` in the browser console — handy for capturing the modal + rewards. This dev
-> seam is compiled out of the production build.
+> **Recording tip:** in `npm run dev` you can drive the campaign from the browser console with the
+> dev-only seams `window.__wgOpenGate()` (open the AI challenge without walking), `window.__wgWin()`
+> (fire the victory → "Level Up!" auto-advance), and `window.__wgPlay(n)` (jump to level n). These
+> are compiled out of the production build.
 
 ## Contract Link
-https://studio.genlayer.com/address/0x0B648Bd000cAfb84855fE681A584339ca31d8894
-— **DEPLOYED to StudioNet** (address `0x0B648Bd000cAfb84855fE681A584339ca31d8894`; tx `ACCEPTED`,
-validators `AGREE`; verified with `genlayer schema` and a live `contract_balance` call). Redeploy
-script: `scripts/deploy.sh`.
+https://studio.genlayer.com/address/0xA027635817B54e9b54dC0944b511399140EA6Ed9
+— **DEPLOYED to StudioNet** (address `0xA027635817B54e9b54dC0944b511399140EA6Ed9`; tx
+`0xec301940…231266bf5`, `ACCEPTED`, 5/5 validators). Now includes the **progressive campaign**
+surface: `complete_level`, `has_completed_level`, `get_completed_levels`, `get_level_reward`, and
+`campaign_progress` (replaying a conquered `(wallet, level)` is rejected on-chain as anti-cheat).
+The marketplace methods (`create_quest`/`submit_action`) are unchanged and the 22 direct-mode tests
+still pass. Redeploy script: `scripts/deploy.sh`.
 
 ## Website
 **[frontend URL — TBD]** (GitHub Pages via `.github/workflows/deploy-frontend.yml`; publish needs the
@@ -79,8 +84,8 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 
 | Area | Status | Evidence |
 |------|--------|----------|
-| GenLayer contract | ✅ Complete | `contracts/weatherquest.py` — 9 methods; passes `genvm-lint check` (lint + validate). |
-| Contract deployment | ✅ Deployed to StudioNet | Address `0x0B648Bd000cAfb84855fE681A584339ca31d8894`; `scripts/deploy.sh` reproduces it. |
+| GenLayer contract | ✅ Complete | `contracts/weatherquest.py` — 14 public methods (marketplace + progressive campaign); passes `genvm-lint check` (lint + validate). |
+| Contract deployment | ✅ Deployed to StudioNet | Address `0xA027635817B54e9b54dC0944b511399140EA6Ed9`; `scripts/deploy.sh` reproduces it. |
 | Direct-mode tests | ✅ Executed — 22/22 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`). |
 | Open-Meteo integration | ✅ Verified | Geocoding + forecast endpoints return the expected `results` / `current` shapes (confirmed live in-browser). |
 | 2D game (Kaboom.js) | ✅ Complete & builds | `frontend/src/Game.tsx` — tile field (grass/river/wall/gate/victory), WASD+arrow movement, AABB collision, gate + victory triggers. |
@@ -88,6 +93,8 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 | SUCCESS rewards | ✅ Verified (DOM) + foreground animation | PASS → confetti + chime + GEN count-up → gate recolors green → walk to ★ Victory. Confirmed via browser playtest. |
 | FAIL rewards | ✅ Verified at High tier | Reckless action → red "Quest Failed" + shake, gate stays locked (confirmed against a live Thunderstorm/High `3.4x` city). |
 | Console health | ✅ Zero errors, zero warnings | Playtest + final reload logged only benign dev-only Vite/React lines; the 2 React Router warnings were removed by mounting the game directly. |
+| Progressive campaign UI | ✅ Verified (browser playtest) | Level-select hub (1-10) with "Already Conquered ✅" badges from `campaign_progress`; Level 1 themed to the IP-detected home city (live playtest resolved *Geneve*, London fallback wired); victory → "Level Up!" auto-advance L1→L2→L3; HUD shows wallet/level/city/GEN. |
+| Wallet hybrid | ✅ Demo default + SDK live | "Connect GenLayer Wallet" uses the `genlayer-js` SDK (lazy-loaded, code-split out of the demo bundle) for on-chain reads/writes; Demo Mode stays fully playable with `localStorage` progress. |
 | Logo / icon | ✅ Complete | `frontend/public/` — `logo.svg` + PNGs (512², 128, 64 favicon). |
 | Demo video | ✅ Produced | `media/demo.mp4` (1920×1080) via `scripts/build_demo.sh` + `docs/captions.srt`. YouTube upload is **[TBD]**. |
 | Frontend deployment | ⏳ Workflow ready | GitHub Pages workflow included; publish + URL are **[TBD]** (manual). |
