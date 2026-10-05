@@ -245,7 +245,7 @@ because image-generation/Pillow were unavailable in the build sandbox.
 ## 10. Deployment
 
 - **Contract → GenLayer StudioNet: ✅ DEPLOYED.**
-  ### `0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5`
+  ### `0x884974D0D16E087d925c690186687de9Ec2B20F9`
   (deploy tx `0x1abe524f…9fa5`, `FINALIZED`. This deployment adds `CAMPAIGN_REWARD_SCALE=100`, so every
   campaign prize GEN is divided by 100 on-chain — base reward L1..L10 = 0.1..1.0 GEN, multipliers unchanged
   — letting the funded house sustain ~100× more play. It includes the progressive-campaign
@@ -257,7 +257,7 @@ because image-generation/Pillow were unavailable in the build sandbox.
 - **Frontend → GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow. *(Live URL: **[TBD]** in `SUBMISSION.md`.)*
 
-To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5`
+To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x884974D0D16E087d925c690186687de9Ec2B20F9`
 and `VITE_ONCHAIN=true` in `frontend/.env` (see §6). For the campaign path the Pages build bakes only
 `VITE_CONTRACT_ADDRESS` (see `.github/workflows/deploy-frontend.yml`); `VITE_ONCHAIN` is intentionally left
 off so the marketplace flows don't attempt unfunded on-chain escrow.
