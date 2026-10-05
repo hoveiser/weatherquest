@@ -104,7 +104,7 @@ export interface LevelOutcome {
   actualSteps: number;
   /** Efficiency tier derived from the two step counts (same rule as the contract). */
   efficiency: EfficiencyTier;
-  /** Efficiency multiplier in hundredths: 150 / 100 / 50 / 10. */
+  /** Efficiency multiplier in hundredths: 120 / 100 / 50 / 10. */
   efficiencyX100: number;
   /** True once the level was settled by the on-chain contract (real GEN transfer);
    *  false in demo mode (local, simulated). Drives honest settlement copy in the UI. */

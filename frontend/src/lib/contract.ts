@@ -160,14 +160,14 @@ export interface CompleteLevelInput {
 }
 
 /**
- * Demo mirror of the contract's _efficiency_multiplier — identical integer tiers so
+ * Demo mirror of the contract's _efficiency_multiplier: identical integer tiers so
  * the offline preview and the on-chain settlement always agree. Returns the tier
- * and its hundredths multiplier (150 / 100 / 50 / 10).
+ * and its hundredths multiplier (120 / 100 / 50 / 10).
  */
 export function efficiencyTier(optimalSteps: number, actualSteps: number): { tier: EfficiencyTier; x100: number } {
   const opt = Math.max(1, Math.trunc(optimalSteps) || 1);
   const act = Math.max(1, Math.trunc(actualSteps) || 1);
-  if (act <= opt + 2) return { tier: "Perfect", x100: 150 };
+  if (act <= opt + 2) return { tier: "Perfect", x100: 120 };
   if (act * 2 <= opt * 3) return { tier: "Good", x100: 100 }; // act <= optimal * 1.5, no floats
   if (act <= opt * 3) return { tier: "Wandering", x100: 50 };
   return { tier: "Lost", x100: 10 };

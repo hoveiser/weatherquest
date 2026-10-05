@@ -42,12 +42,14 @@ jobs:
         # VITE_ONCHAIN would make the marketplace create/submit flows throw (they have
         # no funded escrow). A public address is safe to commit here.
         #
-        # This is the campaign-payout contract redeployed with CAMPAIGN_REWARD_SCALE=100
-        # (all prize GEN divided by 100 on-chain so the small testnet house lasts ~100x
-        # longer); it is funded with 20 GEN. Ratios and weather/efficiency multipliers are
-        # unchanged from the prior contract.
+        # This is the campaign-payout contract redeployed with the validator-consensus
+        # fix: the weather multiplier is now deterministic integer math (no LLM on the
+        # payout path), levels 2-10 read a fixed coordinate table (byte-identical fetch
+        # URLs), only ONE LLM call remains (action judgment), and validators compare
+        # tier/multiplier/success EXACTLY. It keeps CAMPAIGN_REWARD_SCALE=100 and the
+        # capped 1.20x Perfect efficiency tier, and is funded with 2 GEN on StudioNet.
         env:
-          VITE_CONTRACT_ADDRESS: "0x884974D0D16E087d925c690186687de9Ec2B20F9"
+          VITE_CONTRACT_ADDRESS: "0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

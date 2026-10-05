@@ -108,7 +108,7 @@ type Phase = "menu" | "playing";
  * - Walking a level: touch the closed Magic Gate → AI gate challenge (complete_level)
  *   → on success the gate opens → reach the ★ victory zone → "Level Up!" auto-advance.
  * - HUD shows wallet (Demo Mode or connected GenLayer address), level, city, GEN balance.
- * The GenLayer contract owns all authoritative weather-judgment + reward logic (36 direct-mode tests).
+ * The GenLayer contract owns all authoritative weather-judgment + reward logic (125 tests).
  */
 export default function App() {
   const [phase, setPhase] = useState<Phase>("menu");

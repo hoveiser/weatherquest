@@ -1,4 +1,11 @@
-"""Shared fixtures and mock helpers for WeatherQuest direct-mode tests."""
+"""Shared fixtures and mock helpers for WeatherQuest direct-mode tests.
+
+The weather multiplier is now DETERMINISTIC (no weather LLM), so these helpers
+only mock the Open-Meteo geocoding + forecast endpoints and the single remaining
+action-judgment LLM prompt. The multiplier/risk tier a test asserts is derived by
+the contract itself from the mocked `current` block, so the presets below pin the
+exact integer snapshot the contract's _risk_from_snapshot consumes.
+"""
 import json
 import sys
 
@@ -22,7 +29,7 @@ def warp(direct_vm, timestamp):
     ``direct_vm.warp`` patches ``datetime.now`` and stores the timestamp, but
     the direct-mode harness does not propagate it into ``gl.message_raw``
     (only sender/origin are refreshed). The contract reads its deterministic
-    transaction clock from ``gl.message_raw['datetime']`` — so we bridge that
+    transaction clock from ``gl.message_raw['datetime']`` - so we bridge that
     gap here without touching the contract. Mirrors the harness's own guard by
     only mutating the already-imported ``genlayer.gl`` module.
     """
@@ -30,6 +37,7 @@ def warp(direct_vm, timestamp):
     gl_mod = sys.modules.get("genlayer.gl")
     if gl_mod is not None and getattr(gl_mod, "message_raw", None) is not None:
         gl_mod.message_raw["datetime"] = timestamp
+
 
 LONDON_GEOCODE = {
     "results": [
@@ -47,15 +55,27 @@ def forecast(current):
     }
 
 
+# --- Weather presets that pin the deterministic multiplier/tier -------------
+# All-integer calm day: wind 7 (<20), no precip, temp 14 (5..25), code 3 ->
+# hw/hp/ht/hc all 0 -> score 100 -> tier Low, multiplier 100 (1.00x).
 CALM = {
-    "time": "2026-10-03T09:15", "interval": 900, "temperature_2m": 14.1,
-    "precipitation": 0.0, "weather_code": 3, "wind_speed_10m": 6.8,
-    "relative_humidity_2m": 85, "is_day": 1,
+    "temperature_2m": 14.1, "precipitation": 0.0, "weather_code": 3,
+    "wind_speed_10m": 6.8, "relative_humidity_2m": 85,
+}
+# Windy day: wind 35 (30..39 -> hw 60), rest neutral -> score 160 -> Medium, 1.60x.
+WINDY = {
+    "temperature_2m": 14.0, "precipitation": 0.0, "weather_code": 3,
+    "wind_speed_10m": 35.0, "relative_humidity_2m": 60,
+}
+# Severe thunderstorm: hits every high band and clamps to 500 -> Extreme.
+STORM = {
+    "temperature_2m": 38.0, "precipitation": 30.0, "weather_code": 96,
+    "wind_speed_10m": 70.0, "relative_humidity_2m": 95,
 }
 
 
-def mock_weather(direct_vm, city="London", current=None):
-    """Wire up geocoding + forecast + both LLM prompts for a calm London day."""
+def mock_weather(direct_vm, current=None):
+    """Wire up geocoding + forecast for a free-form city (Level 1 / preview path)."""
     current = current or CALM
     direct_vm.mock_web(
         r"geocoding-api\.open-meteo\.com.*",
@@ -67,20 +87,21 @@ def mock_weather(direct_vm, city="London", current=None):
     )
 
 
-def mock_llm_analysis(direct_vm, multiplier=2.0, tier="Medium", reasoning="Windy."):
-    # The multiplier is sent as a JSON string on purpose: GenVM calldata has no
-    # float type, so the direct-mode LLM mock transport cannot round-trip a raw
-    # float. The contract coerces it with float(str(...)) regardless.
-    direct_vm.mock_llm(
-        r".*risk engine of a weather-based bounty game.*",
-        json.dumps({"multiplier": str(multiplier), "risk_tier": tier, "reasoning": reasoning}),
+def mock_forecast_only(direct_vm, current=None):
+    """Table levels (2-10) skip geocoding and fetch the forecast directly, so only
+    the forecast URL needs mocking; the geocode mock is harmless if left unused."""
+    current = current or CALM
+    direct_vm.mock_web(
+        r"api\.open-meteo\.com/v1/forecast.*",
+        {"status": 200, "body": json.dumps(forecast(current))},
     )
 
 
-def mock_llm_judgment(direct_vm, success=True, reasoning="Safe enough."):
+def mock_llm_judgment(direct_vm, success=True, why="fine"):
+    """Mock the ONE remaining LLM call: the tier-keyed action judgment."""
     direct_vm.mock_llm(
-        r".*Judge whether performing this action.*",
-        json.dumps({"success": success, "reasoning": reasoning}),
+        r".*Return strict JSON.*",
+        json.dumps({"success": success, "why": why}),
     )
 
 
@@ -89,7 +110,7 @@ def deploy(direct_deploy, direct_vm, direct_alice, house=1000):
 
     NOTE: direct mode exposes a contract's GEN through its *native* balance
     (``self.balance`` -> WASI ``get_self_balance``), which is backed by the VM
-    balance map. That map is only mutated by ``deal()`` — payable calls and
+    balance map. That map is only mutated by ``deal()`` - payable calls and
     ``emit_transfer`` do not move native GEN in direct mode. We therefore seed
     the deployed contract's native balance directly. (Full native-transfer
     accounting is covered by integration tests against a real environment.)

@@ -166,7 +166,7 @@ loaded lazily and code-split out of the demo bundle).
 
 The direct-mode suite runs on any machine that can reach PyPI + the pinned GenVM
 runner (the test SDK auto-downloads the runner into `~/.cache/gltest-direct/`).
-It was executed end-to-end and **all 36 tests pass**.
+It was executed end-to-end and **all 125 tests pass**.
 
 ```bash
 # 1. Isolated environment (Python 3.12)
@@ -244,20 +244,25 @@ because image-generation/Pillow were unavailable in the build sandbox.
 
 ## 10. Deployment
 
-- **Contract → GenLayer StudioNet: ✅ DEPLOYED.**
-  ### `0x884974D0D16E087d925c690186687de9Ec2B20F9`
-  (deploy tx `0x1abe524f…9fa5`, `FINALIZED`. This deployment adds `CAMPAIGN_REWARD_SCALE=100`, so every
-  campaign prize GEN is divided by 100 on-chain — base reward L1..L10 = 0.1..1.0 GEN, multipliers unchanged
-  — letting the funded house sustain ~100× more play. It includes the progressive-campaign
-  methods `complete_level`, `has_completed_level`, `get_completed_levels`, `get_level_reward`,
-  and `campaign_progress`, the deterministic efficiency-multiplier reward tier, and the tier-driven AI
-  judgment that is lenient in Low/Medium weather and strict only in High/Extreme). Re-deploy any time with `scripts/deploy.sh`, which
-  imports the key from `.env` and publishes `contracts/weatherquest.py` to
-  `studionet`. Studio explorer: https://studio.genlayer.com.
+- **Contract → GenLayer StudioNet: ✅ DEPLOYED (validator-consensus redeploy).**
+  ### `0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72`
+  (deploy tx `0xe1aa739a…d2b9`, `FINALIZED` / `MAJORITY_AGREE`). This redeploy fixes the root
+  cause of the `complete_level` validator timeouts on the previous contract: the weather
+  multiplier and risk tier are now deterministic integer math (no LLM touches the
+  payout-determining value), levels 2-10 read a fixed integer coordinate table so every
+  validator requests a byte-identical forecast URL (geocoding skipped), only ONE LLM call
+  remains (the open-ended action judgment, with prompt-injection wrapping), and validators
+  compare tier/multiplier/success EXACTLY (no tolerance). It keeps `CAMPAIGN_REWARD_SCALE=100`
+  (base reward L1..L10 = 0.1..1.0 GEN), the progressive-campaign methods, and caps the Perfect
+  efficiency bonus at 1.20x. On-chain proof: a real `complete_level(2, "Tokyo", ...)` reached
+  `FINALIZED` / `MAJORITY_AGREE` and paid 0.144 GEN (0.12 base x 1.00x weather x 1.20x
+  efficiency); the deploy and a 2 GEN `deposit()` also finalized cleanly. Redeploy from source
+  with the SDK scripts in `scripts/` (`wq_check.py`, `wq_deploy.py`, `wq_onchain.py`); `scripts/deploy.sh`
+  is the `genlayer` CLI path. Studio explorer: https://studio.genlayer.com.
 - **Frontend → GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow. *(Live URL: **[TBD]** in `SUBMISSION.md`.)*
 
-To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x884974D0D16E087d925c690186687de9Ec2B20F9`
+To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72`
 and `VITE_ONCHAIN=true` in `frontend/.env` (see §6). For the campaign path the Pages build bakes only
 `VITE_CONTRACT_ADDRESS` (see `.github/workflows/deploy-frontend.yml`); `VITE_ONCHAIN` is intentionally left
 off so the marketplace flows don't attempt unfunded on-chain escrow.
