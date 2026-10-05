@@ -49,7 +49,13 @@ export function densityForLevel(level: number): number {
 }
 
 // Mirrors contracts/weatherquest.py LEVEL_BASE_GEN (base GEN per level).
+// The table is in whole GEN for readability; CAMPAIGN_REWARD_SCALE below shrinks
+// every campaign prize to 1/100 so the small testnet house lasts ~100x longer.
+// The contract does the identical divide in _level_base_atto (integer atto math).
 export const LEVEL_BASE_GEN: readonly number[] = [0, 10, 12, 15, 20, 25, 30, 35, 50, 75, 100];
+
+// Mirrors contracts/weatherquest.py CAMPAIGN_REWARD_SCALE.
+export const CAMPAIGN_REWARD_SCALE = 100;
 
 // Progressively harder global cities for levels 2+ (Level 1 = the player's IP city).
 export const CAMPAIGN_CITIES: Readonly<Record<number, string>> = {
@@ -73,7 +79,8 @@ export function difficultyBand(level: number): DifficultyBand {
 }
 
 export function baseRewardGen(level: number): number {
-  return LEVEL_BASE_GEN[level] ?? 0;
+  // Scaled to match the on-chain payout: LEVEL_BASE_GEN / CAMPAIGN_REWARD_SCALE.
+  return (LEVEL_BASE_GEN[level] ?? 0) / CAMPAIGN_REWARD_SCALE;
 }
 
 export function cityForLevel(level: number, homeCity: string): string {

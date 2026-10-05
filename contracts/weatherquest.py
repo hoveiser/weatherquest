@@ -67,6 +67,11 @@ MAX_LEVEL = 10
 # Hard/Extreme levels (8-10) pay large absolute sums for surviving severe weather.
 # Final Reward = LEVEL_BASE_GEN[level] * weather multiplier (1.0x-5.0x).
 LEVEL_BASE_GEN = (0, 10, 12, 15, 20, 25, 30, 35, 50, 75, 100)
+# Prize scale divisor. The table above is in whole GEN for readability, but the
+# (testnet) house is small, so every campaign payout is divided by this on-chain.
+# Ratios + weather/efficiency multipliers are UNCHANGED — only the absolute GEN
+# size shrinks. 100 => a full L1..L10 run drains ~3.7 GEN instead of ~370.
+CAMPAIGN_REWARD_SCALE = 100
 
 # Quest status lifecycle
 STATUS_ACTIVE = "Active"
@@ -178,8 +183,10 @@ def _validate_level(level):
 
 
 def _level_base_atto(level):
-	"""Deterministic base reward (atto GEN) escrowed by the campaign for a level."""
-	return LEVEL_BASE_GEN[level] * GEN
+	"""Deterministic base reward (atto GEN) escrowed by the campaign for a level.
+	LEVEL_BASE_GEN is in whole GEN; divide by CAMPAIGN_REWARD_SCALE so the small
+	testnet house lasts ~100x longer. Integer atto math — identical for validators."""
+	return (LEVEL_BASE_GEN[level] * GEN) // CAMPAIGN_REWARD_SCALE
 
 
 def _level_difficulty(level):

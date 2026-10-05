@@ -218,7 +218,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                   <>
                     <p className="mt-3 font-mono text-sm text-white">
                       {result.onChain ? '≈' : '+'}
-                      {result.payoutGen.toFixed(1)} GEN{' '}
+                      {result.payoutGen.toFixed(2)} GEN{' '}
                       <span className="text-slate-400">
                         (× {result.risk.multiplier.toFixed(1)} risk multiplier)
                       </span>

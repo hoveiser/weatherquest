@@ -82,7 +82,7 @@ export default function LevelSelect({ homeCity, completed, nextLevel, onPlay }: 
                 {cityForLevel(level, homeCity)}
               </div>
               <div className="font-mono text-[11px] text-muted">
-                {base} GEN base · up to {maxPayout} GEN
+                {base.toFixed(2)} GEN base · up to {maxPayout.toFixed(2)} GEN
               </div>
 
               <div className="mt-1">

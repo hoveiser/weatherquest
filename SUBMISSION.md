@@ -49,7 +49,7 @@ WeatherQuest — WeatherGate: AI-Gated 2D Weather RPG
      placeholder shadows the real SDK), then `pip install genlayer-py==0.16.3 genlayer-test==0.29.2`.
 7. **To play against the deployed contract** instead of the local demo: click **"Connect GenLayer
    Wallet"** in the game (uses the `genlayer-js` SDK + an injected EIP-1193 wallet such as MetaMask),
-   or set `VITE_CONTRACT_ADDRESS=0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694` and `VITE_ONCHAIN=true`
+   or set `VITE_CONTRACT_ADDRESS=0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5` and `VITE_ONCHAIN=true`
    in `frontend/.env` (the on-chain call signatures already match the contract).
 
 > **Recording tip:** in `npm run dev` you can drive the campaign from the browser console with the
@@ -59,9 +59,12 @@ WeatherQuest — WeatherGate: AI-Gated 2D Weather RPG
 > are compiled out of the production build.
 
 ## Contract Link
-https://studio.genlayer.com/address/0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694
-— **DEPLOYED to StudioNet** (address `0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694`; tx
-`0x900a826c…3b281e`, `ACCEPTED`, 5 validators — 3 AGREE / 2 IDLE). Now includes the **progressive campaign**
+https://studio.genlayer.com/address/0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5
+— **DEPLOYED to StudioNet** (address `0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5`; deploy tx
+`0x1abe524f…9fa5`, `FINALIZED`). This is the **campaign-payout contract redeployed with
+`CAMPAIGN_REWARD_SCALE=100`** — every campaign prize GEN is divided by 100 on-chain (base reward L1..L10
+= 0.1..1.0 GEN; all weather/efficiency multipliers and ratios unchanged) so the funded house
+(20 GEN) sustains ~100× more play before needing a `deposit()` top-up. Now includes the **progressive campaign**
 surface: `complete_level`, `has_completed_level`, `get_completed_levels`, `get_level_reward`, and
 `campaign_progress` (replaying a conquered `(wallet, level)` is rejected on-chain as anti-cheat).
 `complete_level(level, city, action, optimal_steps, actual_steps)` applies a deterministic, integer-only
@@ -92,7 +95,7 @@ https://github.com/hoveiser/weatherquest *(set the real repo name on creation)*
 | Area | Status | Evidence |
 |------|--------|----------|
 | GenLayer contract | ✅ Complete | `contracts/weatherquest.py` — 14 public methods (marketplace + progressive campaign) with a deterministic efficiency-multiplier reward tier; passes `genvm-lint check` (lint + validate). |
-| Contract deployment | ✅ Deployed to StudioNet | Address `0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694`; `scripts/deploy.sh` reproduces it. |
+| Contract deployment | ✅ Deployed to StudioNet | Address `0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5` (campaign ÷100 payout scale); `scripts/deploy.sh` reproduces it. |
 | Direct-mode tests | ✅ Executed — 36/36 pass | `pytest tests/direct/` run in-environment after installing the real SDK (`genlayer-py`+`genlayer-test`); includes efficiency-tier and maze-complexity coverage. |
 | Open-Meteo integration | ✅ Verified | Geocoding + forecast endpoints return the expected `results` / `current` shapes (confirmed live in-browser). |
 | 2D game (Kaboom.js) | ✅ Complete & builds | `frontend/src/Game.tsx` — tile field (grass/river/wall/gate/victory), WASD+arrow movement, AABB collision, gate + victory triggers. |

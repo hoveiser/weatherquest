@@ -41,8 +41,13 @@ jobs:
         # path only needs the address (wallet.mode=="onchain" && CONTRACT), and flipping
         # VITE_ONCHAIN would make the marketplace create/submit flows throw (they have
         # no funded escrow). A public address is safe to commit here.
+        #
+        # This is the campaign-payout contract redeployed with CAMPAIGN_REWARD_SCALE=100
+        # (all prize GEN divided by 100 on-chain so the small testnet house lasts ~100x
+        # longer); it is funded with 20 GEN. Ratios and weather/efficiency multipliers are
+        # unchanged from the prior contract.
         env:
-          VITE_CONTRACT_ADDRESS: "0x0572E16E2132a69b46dc6f2dcb6B9F2E4407F694"
+          VITE_CONTRACT_ADDRESS: "0x1695bd0E190e4E8eC174c62678cc3d9f5A9B39a5"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
