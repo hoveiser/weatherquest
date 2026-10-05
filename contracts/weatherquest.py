@@ -379,17 +379,19 @@ def _judge_action(summary, tier, action, level=0):
 	t = str(tier).strip().lower()
 	if t.startswith("low"):
 		guidance = (
-			"Conditions are CALM (Low risk). Be LENIENT: accept any reasonable, even "
-			"playful action — 'take a walk', 'walk on the clouds', 'cycle to the town', "
-			"'set up camp' all clearly succeed. Only reject an action that is nonsensical "
-			"or self-contradictory, which is essentially never."
+			"Conditions are CALM (Low risk). Be MAXIMALLY LENIENT: accept essentially ANY "
+			"reasonable action the player can imagine — walking, running, cycling, hiking, "
+			"'walk on the clouds', swimming in a calm lake, flying a kite, or setting up camp "
+			"all SUCCEED. Reject only pure gibberish or a physically self-contradictory "
+			"command, which is essentially never."
 		)
 	elif t.startswith("med"):
 		guidance = (
-			"Conditions are MILD (Medium risk). Be FORGIVING: most reasonable actions "
-			"succeed — walking, hiking, cycling, driving, sailing a boat, or taking "
-			"shelter are all fine. Only reject a clearly dangerous action that needlessly "
-			"braves the elements, e.g. flying a kite or free-climbing in strong wind."
+			"Conditions are MILD (Medium risk). Be LENIENT: accept all reasonable actions — "
+			"walking, hiking, cycling, driving, sailing a boat, swimming, or taking shelter "
+			"all succeed. Reject ONLY an action that is clearly and specifically dangerous "
+			"for these exact mild conditions (for example, free-climbing a tower in a wind "
+			"gust). When in doubt, approve the action."
 		)
 	elif t.startswith("high"):
 		guidance = (

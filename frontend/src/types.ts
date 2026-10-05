@@ -110,5 +110,9 @@ export interface LevelOutcome {
    *  false in demo mode (local, simulated). Drives honest settlement copy in the UI. */
   onChain?: boolean;
   alreadyCompleted?: boolean;
+  /** True when an on-chain submission hit the 60s validator-consensus timeout
+   *  (StudioNet congestion). This is NOT an AI failure — the UI must show a
+   *  "may finalize later" notice and let the player close, never "Quest Failed". */
+  timedOut?: boolean;
   txHash?: string;
 }

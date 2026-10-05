@@ -39,6 +39,12 @@ export const DEMO_ADDR = "0xWeatherQuestDemo00000000000000000000000000";
 const RECKLESS = ["fly", "kite", "swim", "climb", "sail", "raft", "surf", "boat", "paraglide", "skydiv", "kayak"];
 const CAUTIOUS = ["cover", "shelter", "snowmobile", "drive", "wait", "stay", "indoor", "equipment", "hunker", "prepare", "warm", "dry", "anchor", "bundl", "helmet", "postpone", "avoid", "detour"];
 
+// Verbs that stay clearly dangerous even in MILD (Medium) weather — airborne or
+// height moves the wind can turn on. The demo Medium tier rejects ONLY these (when
+// no caution is shown), so ordinary actions like swim / sail / walk / drive pass,
+// mirroring the contract's lenient "reject only clearly dangerous" Medium guidance.
+const MEDIUM_DANGEROUS = ["kite", "fly", "paraglide", "skydiv", "climb", "surf"];
+
 // --- Demo persistence -------------------------------------------------------
 const DEMO_ACCOUNT_KEY = "wq:demo:account";
 const DEMO_PROGRESS_KEY = "wq:campaign:demo";
@@ -242,10 +248,13 @@ async function completeLevelDemo(
     success = true;
     verdict = `Low risk (${mult}x): calm conditions — "${action}" is an easy call.`;
   } else if (risk.risk_tier === "Medium") {
-    success = !(reckless && !cautious);
+    // Forgiving: only clearly dangerous airborne/height moves that ignore caution
+    // are rejected — swimming, sailing, walking or driving all pass in mild weather.
+    const clearlyDangerous = MEDIUM_DANGEROUS.some((k) => a.includes(k)) && !cautious;
+    success = !clearlyDangerous;
     verdict = success
       ? `Medium risk (${mult}x): "${action}" is a reasonable response to mild conditions.`
-      : `Medium risk (${mult}x): "${action}" needlessly braves the weather — pick a safer approach.`;
+      : `Medium risk (${mult}x): "${action}" is clearly dangerous right now — pick a safer approach.`;
   } else if (risk.risk_tier === "High") {
     success = cautious || !reckless;
     verdict = success
@@ -297,17 +306,22 @@ async function completeLevelOnChain(
   const { risk } = await previewFor(city);
   const eff = efficiencyTier(optimal, actual);
   const res = await gl.writeCompleteLevel(wallet.address, CONTRACT, level, city, action, optimal, actual);
-  const success = res.completed;
+  // A 60s consensus timeout is StudioNet congestion ("may finalize later"), NOT an AI fail.
+  const timedOut = res.timedOut;
+  const success = !timedOut && res.completed;
   const base = baseRewardGen(level);
   const payoutGen = success ? round4(base * risk.multiplier * (eff.x100 / 100)) : 0;
   return {
     level,
     success,
+    timedOut,
     payoutGen,
     risk,
-    reasoning: success
-      ? `On-chain: validators settled Level ${level} (${city}) as passed.`
-      : `On-chain: the AI judgment failed Level ${level} (${city}). Try a safer action and resubmit.`,
+    reasoning: timedOut
+      ? `⏳ StudioNet validators are congested. Transaction may finalize later — nothing was charged and ${city} was not marked conquered. Try again shortly, or keep playing in demo mode.`
+      : success
+        ? `On-chain: validators settled Level ${level} (${city}) as passed.`
+        : `On-chain: the AI judgment failed Level ${level} (${city}). Try a safer action and resubmit.`,
     difficulty,
     city,
     optimalSteps: optimal,

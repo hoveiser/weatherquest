@@ -7,8 +7,9 @@
 // state, and animates the verdict (success glow / failure shake).
 //
 // The actual verdict comes from `onSubmit` (the parent), which reuses the
-// project's existing `submitAction` demo/heuristic logic — the same function
-// the old UI used. No contract code was changed.
+// project's existing complete_level demo/on-chain logic. Three verdict shapes
+// are rendered: PASS, a genuine AI FAIL (shake), and a validator CONGESTION
+// TIMEOUT (60s, no shake, "may finalize later").
 // ============================================================================
 import { useState } from 'react';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
@@ -86,15 +87,17 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     try {
       res = await onSubmit(trimmed);
     } catch {
-      // On-chain settlement can fail on StudioNet (validators congested / timeout).
-      // Show an honest non-settled verdict instead of hanging on "analyzing…".
+      // On-chain settlement can fail to confirm on StudioNet (validators congested /
+      // transaction timed out). Treat that as a non-settled CONGESTION state, never a
+      // "Quest Failed" AI verdict — the level was not judged and nothing was charged.
       res = {
         level: 0,
         success: false,
+        timedOut: true,
         payoutGen: 0,
         risk: result?.risk ?? ({ multiplier: 1, multiplierX100: 100, risk_tier: 'Low', reasoning: '' }),
         reasoning:
-          'On-chain settlement did not confirm — StudioNet validators may be congested or the transaction timed out. Nothing was charged and the level was NOT completed; try again shortly, or play in demo mode.',
+          'StudioNet validators are congested. Transaction may finalize later. Nothing was charged and the level was NOT completed — try again shortly, or keep playing in demo mode.',
         difficulty: 'Easy',
         city,
         optimalSteps: 0,
@@ -106,7 +109,8 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     }
     setResult(res);
     setMode('verdict');
-    if (!res.success) setShakeKey((k) => k + 1);
+    // Only a genuine AI failure shakes. A congestion timeout is shown calmly.
+    if (!res.success && !res.timedOut) setShakeKey((k) => k + 1);
     onResult(res);
   };
 
@@ -116,6 +120,8 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
   };
 
   const busy = mode === 'judging';
+  const isTimeout = mode === 'verdict' && !!result?.timedOut;
+  const isFail = mode === 'verdict' && !!result && !result.success && !result.timedOut;
 
   return (
     <AnimatePresence>
@@ -139,19 +145,23 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
             key={shakeKey}
             variants={shake}
             initial={{ scale: 0.85, opacity: 0, y: 24 }}
-            animate={mode === 'verdict' && result && !result.success ? 'shake' : 'idle'}
+            animate={isFail ? 'shake' : 'idle'}
             transition={{ type: 'spring', damping: 18, stiffness: 320, scale: { duration: 0.25 }, opacity: { duration: 0.2 }, x: { duration: 0.5, ease: 'easeInOut' } }}
             exit={{ scale: 0.9, opacity: 0, transition: { duration: 0.18 } }}
             className={`relative w-full max-w-lg rounded-modal border bg-card p-6 shadow-glow-purple ${
               mode === 'verdict' && result?.success ? 'border-success/60 shadow-glow-green' : ''
-            } ${mode === 'verdict' && result && !result.success ? 'border-danger/60 shadow-glow-red' : ''}`}
+            } ${isFail ? 'border-danger/60 shadow-glow-red' : ''} ${isTimeout ? 'border-warning/60' : ''}`}
           >
             {/* ---- Header ---- */}
             <div className="mb-5 flex items-start justify-between">
               <div>
                 <p className="font-mono text-[10px] tracking-[0.3em] text-secondary">genlayer · ai gate</p>
                 <h2 className="mt-1 text-2xl font-bold leading-tight">
-                  {mode === 'verdict' && result?.success ? 'Gate Unlocked ✨' : 'Magic Gate Locked 🚪'}
+                  {mode === 'verdict' && result?.success
+                    ? 'Gate Unlocked ✨'
+                    : isTimeout
+                      ? 'Validators Busy ⏳'
+                      : 'Magic Gate Locked 🚪'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-400">
                   Target city: <span className="text-white">{city}</span> {condEmoji}
@@ -163,6 +173,18 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                   className="rounded-pill bg-white/5 px-3 py-1 text-xs text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
                 >
                   Step back
+                </button>
+              )}
+              {/* Close (X): lets the player dismiss a failure / congestion verdict
+                  without being forced to retry. Hidden while the AI is judging. */}
+              {mode === 'verdict' && (
+                <button
+                  onClick={onClose}
+                  aria-label="Close"
+                  title="Close"
+                  className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-pill bg-white/5 text-lg leading-none text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  ✕
                 </button>
               )}
             </div>
@@ -201,8 +223,38 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                   AI Validators are analyzing the weather and your action…
                 </p>
                 <p className="mt-2 font-mono text-[10px] tracking-widest text-slate-500">
-                  consensus round · re-fetch · compare
+                  consensus round · re-fetch · compare · up to 60s
                 </p>
+                <button
+                  onClick={onClose}
+                  className="mt-6 rounded-pill border border-white/15 bg-white/5 px-4 py-1.5 text-xs text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : mode === 'verdict' && result && isTimeout ? (
+              // ---- Validator congestion (NOT a failure — no shake) ----
+              <div className="rounded-card border border-warning/50 bg-warning/10 p-4">
+                <p className="text-lg font-bold text-warning">⏳ Validators congested</p>
+                <p className="mt-1 text-sm text-slate-200">{result.reasoning}</p>
+                <p className="mt-2 font-mono text-[11px] text-slate-400">
+                  StudioNet is taking longer than 60s to reach consensus. Your transaction may
+                  still finalize on-chain — this was not an AI failure.
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={retry}
+                    className="flex-1 rounded-pill border border-white/15 bg-white/5 py-2.5 font-semibold text-white transition-colors hover:bg-white/10"
+                  >
+                    Try again
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="flex-1 rounded-pill bg-primary py-2.5 font-bold text-white transition-colors hover:bg-primary/90"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             ) : mode === 'verdict' && result ? (
               <div
@@ -285,12 +337,21 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                     </motion.button>
                   </>
                 ) : (
-                  <button
-                    onClick={retry}
-                    className="mt-4 w-full rounded-pill border border-white/15 bg-white/5 py-2.5 font-semibold text-white transition-colors hover:bg-white/10"
-                  >
-                    Try a different action
-                  </button>
+                  // ---- Genuine AI failure: retry OR close without retrying (issue 2) ----
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={retry}
+                      className="flex-1 rounded-pill border border-white/15 bg-white/5 py-2.5 font-semibold text-white transition-colors hover:bg-white/10"
+                    >
+                      Try a different action
+                    </button>
+                    <button
+                      onClick={onClose}
+                      className="rounded-pill border border-white/15 bg-white/5 px-5 py-2.5 font-semibold text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
                 )}
               </div>
             ) : (
