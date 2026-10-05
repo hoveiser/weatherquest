@@ -308,20 +308,26 @@ async function completeLevelOnChain(
   const res = await gl.writeCompleteLevel(wallet.address, CONTRACT, level, city, action, optimal, actual);
   // A 60s consensus timeout is StudioNet congestion ("may finalize later"), NOT an AI fail.
   const timedOut = res.timedOut;
-  const success = !timedOut && res.completed;
+  // A specific failure (wallet rejection / contract revert / insufficient funds / network
+  // error) is surfaced verbatim so the UI never shows a misleading generic AI verdict.
+  const errorMessage = res.errorMessage;
+  const success = !timedOut && !errorMessage && res.completed;
   const base = baseRewardGen(level);
   const payoutGen = success ? round4(base * risk.multiplier * (eff.x100 / 100)) : 0;
   return {
     level,
     success,
     timedOut,
+    errorMessage,
     payoutGen,
     risk,
     reasoning: timedOut
       ? `⏳ StudioNet validators are congested. Transaction may finalize later — nothing was charged and ${city} was not marked conquered. Try again shortly, or keep playing in demo mode.`
-      : success
-        ? `On-chain: validators settled Level ${level} (${city}) as passed.`
-        : `On-chain: the AI judgment failed Level ${level} (${city}). Try a safer action and resubmit.`,
+      : errorMessage
+        ? `${errorMessage} Nothing was charged and ${city} was not marked conquered.`
+        : success
+          ? `On-chain: validators settled Level ${level} (${city}) as passed.`
+          : `On-chain: the AI judgment failed Level ${level} (${city}). Try a safer action and resubmit.`,
     difficulty,
     city,
     optimalSteps: optimal,

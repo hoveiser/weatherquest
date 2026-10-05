@@ -114,5 +114,10 @@ export interface LevelOutcome {
    *  (StudioNet congestion). This is NOT an AI failure — the UI must show a
    *  "may finalize later" notice and let the player close, never "Quest Failed". */
   timedOut?: boolean;
+  /** Specific, human-readable failure reason when an on-chain write never settled
+   *  (wallet rejection, contract revert, insufficient funds, or network error).
+   *  When set, the UI shows this verbatim instead of a generic "AI said no" message,
+   *  and the failure must NOT shake like an AI-judged-unsafe verdict. */
+  errorMessage?: string;
   txHash?: string;
 }

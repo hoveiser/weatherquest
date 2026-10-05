@@ -218,12 +218,37 @@ export async function readCampaignProgress(address: string, contract: string): P
   };
 }
 
+/**
+ * Map a wallet / SDK / RPC error to a specific, human-readable failure reason so
+ * the UI can tell the player EXACTLY what went wrong instead of a generic
+ * "Quest Failed". Order matters: a wallet rejection (code 4001 / "rejected") is
+ * checked first, then contract reverts, then funding problems, else network.
+ */
+function classifyWriteError(err: unknown): string {
+  const code = providerErrorCode(err);
+  const msg = providerErrorMessage(err); // already lower-cased
+  if (code === 4001 || msg.includes("rejected") || msg.includes("user denied") || msg.includes("denied transaction")) {
+    return "Transaction rejected by your wallet.";
+  }
+  if (msg.includes("revert") || msg.includes("execution reverted")) {
+    return "Action rejected by AI validators or contract logic.";
+  }
+  if (msg.includes("insufficient funds") || msg.includes("balance")) {
+    return "Insufficient GEN balance in contract or wallet.";
+  }
+  return "Network error. Please try again.";
+}
+
 export interface CompleteLevelResult {
   txHash: string;
   /** True when the level settled as PASSED (payout marked complete). */
   completed: boolean;
   /** True when consensus did NOT finalize within {@link CONSENSUS_TIMEOUT_MS}. */
   timedOut: boolean;
+  /** Specific, human-readable failure reason when the write never settled (wallet
+   *  rejection, contract revert, insufficient funds, or network error). Undefined
+   *  on success and on a plain congestion timeout. */
+  errorMessage?: string;
 }
 
 /**
@@ -231,7 +256,9 @@ export interface CompleteLevelResult {
  * StudioNet (value 0). The two step counts drive the on-chain efficiency
  * multiplier. Waits for consensus (capped at 60s) and then re-reads progress to
  * confirm settlement. On a chain-mismatch send error, switches to StudioNet and
- * retries once. A consensus timeout is reported via `timedOut` (NOT as a fail).
+ * retries once. Failures never throw: a wallet rejection, contract revert,
+ * insufficient funds, or network error is mapped to a specific `errorMessage`,
+ * while a 60s consensus timeout is reported via `timedOut` (NOT as a fail).
  */
 export async function writeCompleteLevel(
   address: string,
@@ -253,35 +280,51 @@ export async function writeCompleteLevel(
     return { client, hash };
   };
 
-  // Issue 5: auto-retry after switching network if the send hit a chain mismatch.
-  const { client, hash } = await withChainRetry(submit);
-
-  // Issue 3: cap validator-consensus waiting at 60s; congestion ≠ failure.
-  let timedOut = false;
-  let finalized = false;
+  let txHash = "";
   try {
-    await withTimeout(client.waitForTransactionReceipt({ hash }), CONSENSUS_TIMEOUT_MS);
-    finalized = true;
+    // Issue 5: auto-retry after switching network if the send hit a chain mismatch.
+    // A wallet rejection (code 4001) here is caught below and mapped to a message.
+    const { client, hash } = await withChainRetry(submit);
+    txHash = String(hash);
+
+    // Issue 3: cap validator-consensus waiting at 60s; congestion ≠ failure.
+    let timedOut = false;
+    let finalized = false;
+    try {
+      await withTimeout(client.waitForTransactionReceipt({ hash }), CONSENSUS_TIMEOUT_MS);
+      finalized = true;
+    } catch (err) {
+      if (err instanceof Error && err.message === CONSENSUS_TIMEOUT_SENTINEL) {
+        timedOut = true;
+      } else {
+        throw err; // a genuine revert / execution error — mapped by the outer catch
+      }
+    }
+
+    if (timedOut) {
+      return { txHash, completed: false, timedOut: true };
+    }
+
+    // StudioNet applies the payout on FINALIZED, which can lag the receipt by a few
+    // seconds. Poll briefly so a settled win isn't falsely reported as failed.
+    let completed = false;
+    if (finalized) {
+      try {
+        for (let i = 0; i < 6 && !completed; i++) {
+          const progress = await readCampaignProgress(address, contract);
+          completed = progress.completed.includes(level);
+          if (!completed) await new Promise((r) => setTimeout(r, 5000));
+        }
+      } catch {
+        /* progress read failed after finalize — treat as unsettled, not a hard error */
+      }
+    }
+
+    return { txHash, completed, timedOut: false };
   } catch (err) {
-    if (err instanceof Error && err.message === CONSENSUS_TIMEOUT_SENTINEL) {
-      timedOut = true;
-    } else {
-      throw err; // a genuine revert / send error — let the caller surface it
-    }
+    // Wallet rejection / revert / insufficient funds / network — never a silent throw.
+    return { txHash, completed: false, timedOut: false, errorMessage: classifyWriteError(err) };
   }
-
-  // StudioNet applies the payout on FINALIZED, which can lag the receipt by a few
-  // seconds. Poll briefly so a settled win isn't falsely reported as failed.
-  let completed = false;
-  if (finalized) {
-    for (let i = 0; i < 6 && !completed; i++) {
-      const progress = await readCampaignProgress(address, contract);
-      completed = progress.completed.includes(level);
-      if (!completed) await new Promise((r) => setTimeout(r, 5000));
-    }
-  }
-
-  return { txHash: String(hash), completed, timedOut };
 }
 
 export const GEN_UNIT = GEN_WEI;

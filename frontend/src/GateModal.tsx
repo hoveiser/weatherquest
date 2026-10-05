@@ -7,9 +7,11 @@
 // state, and animates the verdict (success glow / failure shake).
 //
 // The actual verdict comes from `onSubmit` (the parent), which reuses the
-// project's existing complete_level demo/on-chain logic. Three verdict shapes
-// are rendered: PASS, a genuine AI FAIL (shake), and a validator CONGESTION
-// TIMEOUT (60s, no shake, "may finalize later").
+// project's existing complete_level demo/on-chain logic. Four verdict shapes are
+// rendered: PASS; a genuine AI-judged-unsafe FAIL (shake); a specific TRANSACTION
+// ERROR shown verbatim — wallet rejection / revert / insufficient funds / network
+// (no shake, no generic "AI said no"); and a validator CONGESTION TIMEOUT (60s,
+// no shake, "may finalize later").
 // ============================================================================
 import { useState } from 'react';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
@@ -87,17 +89,18 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     try {
       res = await onSubmit(trimmed);
     } catch {
-      // On-chain settlement can fail to confirm on StudioNet (validators congested /
-      // transaction timed out). Treat that as a non-settled CONGESTION state, never a
-      // "Quest Failed" AI verdict — the level was not judged and nothing was charged.
+      // writeCompleteLevel now maps wallet-rejection / revert / funding / timeout into a
+      // returned outcome, so reaching here means an unexpected failure in the promise
+      // chain. Show a specific, neutral "network error" — never a false "Quest Failed"
+      // AI verdict and never a false congestion state.
       res = {
         level: 0,
         success: false,
-        timedOut: true,
+        timedOut: false,
+        errorMessage: 'Network error. Please try again.',
         payoutGen: 0,
         risk: result?.risk ?? ({ multiplier: 1, multiplierX100: 100, risk_tier: 'Low', reasoning: '' }),
-        reasoning:
-          'StudioNet validators are congested. Transaction may finalize later. Nothing was charged and the level was NOT completed — try again shortly, or keep playing in demo mode.',
+        reasoning: 'Network error. Please try again.',
         difficulty: 'Easy',
         city,
         optimalSteps: 0,
@@ -109,8 +112,9 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     }
     setResult(res);
     setMode('verdict');
-    // Only a genuine AI failure shakes. A congestion timeout is shown calmly.
-    if (!res.success && !res.timedOut) setShakeKey((k) => k + 1);
+    // Only a genuine AI-judged-unsafe failure shakes. A congestion timeout OR a specific
+    // transaction error (wallet rejection / revert / funding / network) is shown calmly.
+    if (!res.success && !res.timedOut && !res.errorMessage) setShakeKey((k) => k + 1);
     onResult(res);
   };
 
@@ -122,6 +126,10 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
   const busy = mode === 'judging';
   const isTimeout = mode === 'verdict' && !!result?.timedOut;
   const isFail = mode === 'verdict' && !!result && !result.success && !result.timedOut;
+  // A specific transaction error (wallet rejection / revert / funding / network) is shown
+  // verbatim and must NOT shake or read as a generic "AI said no" failure.
+  const errorMessage = isFail ? result?.errorMessage : undefined;
+  const isHardFail = isFail && !errorMessage;
 
   return (
     <AnimatePresence>
@@ -145,7 +153,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
             key={shakeKey}
             variants={shake}
             initial={{ scale: 0.85, opacity: 0, y: 24 }}
-            animate={isFail ? 'shake' : 'idle'}
+            animate={isHardFail ? 'shake' : 'idle'}
             transition={{ type: 'spring', damping: 18, stiffness: 320, scale: { duration: 0.25 }, opacity: { duration: 0.2 }, x: { duration: 0.5, ease: 'easeInOut' } }}
             exit={{ scale: 0.9, opacity: 0, transition: { duration: 0.18 } }}
             className={`relative w-full max-w-lg rounded-modal border bg-card p-6 shadow-glow-purple ${
@@ -262,10 +270,21 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                   result.success ? 'border-success/50 bg-success/10' : 'border-danger/50 bg-danger/10'
                 }`}
               >
+                {/* Specific failure reason (wallet rejection / revert / funding / network),
+                    shown prominently ABOVE the failure heading. */}
+                {!result.success && errorMessage && (
+                  <div className="mb-3 rounded border border-danger/50 bg-danger/10 p-3 text-sm text-danger">
+                    ⚠️ {errorMessage}
+                  </div>
+                )}
                 <p className={`text-lg font-bold ${result.success ? 'text-success' : 'text-danger'}`}>
-                  {result.success ? '✅ Quest Passed' : '❌ Quest Failed'}
+                  {result.success ? '✅ Quest Passed' : isHardFail ? '❌ Quest Failed' : '⚠️ Transaction Failed'}
                 </p>
-                <p className="mt-1 text-sm text-slate-200">{result.reasoning}</p>
+                <p className="mt-1 text-sm text-slate-200">
+                  {errorMessage
+                    ? 'Nothing was charged and this level was not marked conquered — fix the issue and try again.'
+                    : result.reasoning}
+                </p>
                 {result.success ? (
                   <>
                     <p className="mt-3 font-mono text-sm text-white">
