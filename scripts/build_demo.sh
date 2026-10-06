@@ -53,13 +53,13 @@ burn_captions() {
       -vf "subtitles=${sub_abs}:force_style='${CAP_STYLE}'" \
       -c:v libx264 -preset slow -crf 20 -r "$FPS" -pix_fmt yuv420p -movflags +faststart "$out"
   else
-    echo "WARN: captions file '$CAPTIONS' not found — writing '$out' WITHOUT burned-in captions." >&2
+    echo "WARN: captions file '$CAPTIONS' not found - writing '$out' WITHOUT burned-in captions." >&2
     ffmpeg -y -loglevel error -i "$in" -c copy "$out"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# Mode A — raw screen recording
+# Mode A - raw screen recording
 # ---------------------------------------------------------------------------
 if [[ -f "$MEDIA_IN" ]]; then
   echo "==> Using screen recording: $MEDIA_IN"
@@ -71,7 +71,7 @@ if [[ -f "$MEDIA_IN" ]]; then
   echo "Wrote $OUT"
 else
   # -------------------------------------------------------------------------
-  # Mode B — still-frame slideshow
+  # Mode B - still-frame slideshow
   # -------------------------------------------------------------------------
   pairs=()
   if [[ -f "$MANIFEST" ]]; then

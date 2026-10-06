@@ -1,5 +1,5 @@
 // ============================================================================
-// DemoModeNotice — a one-time modal that explains Demo Mode vs On-chain play.
+// DemoModeNotice - a one-time modal that explains Demo Mode vs On-chain play.
 //
 // Shows automatically on first load while the app is in Demo Mode (no wallet
 // connected), so users are never confused about why they can play without
@@ -12,7 +12,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 const DISMISS_KEY = 'wq:demo:notice:v1';
 
 interface Props {
-  /** Current wallet mode — the notice only matters in "demo". */
+  /** Current wallet mode - the notice only matters in "demo". */
   mode: 'demo' | 'onchain';
 }
 
@@ -24,7 +24,7 @@ export default function DemoModeNotice({ mode }: Props) {
     try {
       if (!localStorage.getItem(DISMISS_KEY)) setOpen(true);
     } catch {
-      // localStorage unavailable (private mode) — still show it, just don't persist.
+      // localStorage unavailable (private mode) - still show it, just don't persist.
       setOpen(true);
     }
   }, [mode]);
@@ -68,7 +68,7 @@ export default function DemoModeNotice({ mode }: Props) {
 
             <p className="text-sm leading-relaxed text-muted">
               Progress is being <span className="text-ink font-semibold">saved locally</span> in your
-              browser — no wallet, no gas, no login needed. Great for trying the game and the AI
+              browser - no wallet, no gas, no login needed. Great for trying the game and the AI
               weather gate.
             </p>
 
@@ -90,7 +90,7 @@ export default function DemoModeNotice({ mode }: Props) {
 
             <p className="mt-3 text-xs text-muted">
               Tip: the pulsing <span className="text-ink">Demo Mode</span> badge in the corner always
-              tells you which mode you&apos;re in — click Connect to switch to on-chain play.
+              tells you which mode you&apos;re in - click Connect to switch to on-chain play.
             </p>
 
             <div className="mt-5 flex justify-end">
@@ -98,7 +98,7 @@ export default function DemoModeNotice({ mode }: Props) {
                 onClick={dismiss}
                 className="rounded-pill bg-gradient-to-r from-primary to-secondary px-5 py-2 text-sm font-bold text-white hover:opacity-90"
               >
-                Got it — let me play
+                Got it - let me play
               </button>
             </div>
           </motion.div>

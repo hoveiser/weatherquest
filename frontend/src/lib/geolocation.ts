@@ -3,7 +3,7 @@
  *
  * Level 1 is always the player's real-world city. We resolve it client-side from
  * the requester IP via a free geolocation API (ipapi.co). This is a NON-authoritative
- * UX hint only — the GenLayer contract re-fetches the real weather for whatever city
+ * UX hint only - the GenLayer contract re-fetches the real weather for whatever city
  * string is submitted and derives the multiplier from Open-Meteo, so a tampered city
  * value can never forge a higher reward (the weather is re-verified by validators).
  *

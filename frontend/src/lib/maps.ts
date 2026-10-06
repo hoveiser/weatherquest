@@ -5,7 +5,7 @@
  * the Kaboom world and guarantees it is SOLVABLE and NON-TRIVIAL: a recursive-
  * backtracker maze is braided open more for easy levels and less for hard ones,
  * then a BFS check requires the shortest spawn→gate path to be at least
- * `level * 5` steps — otherwise the map is regenerated (up to a bounded number
+ * `level * 5` steps - otherwise the map is regenerated (up to a bounded number
  * of attempts, keeping the longest-path candidate). No straight-line wins.
  *
  * The grid geometry MUST match Game.tsx (COLS x ROWS, TILE = 32). Legend:
@@ -81,6 +81,20 @@ export function difficultyBand(level: number): DifficultyBand {
 export function baseRewardGen(level: number): number {
   // Scaled to match the on-chain payout: LEVEL_BASE_GEN / CAMPAIGN_REWARD_SCALE.
   return (LEVEL_BASE_GEN[level] ?? 0) / CAMPAIGN_REWARD_SCALE;
+}
+
+/**
+ * Exact GEN payout preview using the SAME integer atto math as the contract:
+ *   payout_atto = base_atto * multiplier_x100 * efficiency_x100 / 10000
+ * where base_atto = LEVEL_BASE_GEN[level] * 1e18 / CAMPAIGN_REWARD_SCALE.
+ * BigInt division truncates toward zero exactly like Python's `//`, so the
+ * previewed GEN equals the on-chain credit for the same tier + efficiency
+ * (no float drift, no rounding surprises).
+ */
+export function payoutGenExact(level: number, multiplierX100: number, efficiencyX100: number): number {
+  const baseAtto = BigInt(LEVEL_BASE_GEN[level] ?? 0) * 10n ** 18n / BigInt(CAMPAIGN_REWARD_SCALE);
+  const payoutAtto = (baseAtto * BigInt(Math.round(multiplierX100)) * BigInt(Math.round(efficiencyX100))) / 10000n;
+  return Number(payoutAtto) / 1e18;
 }
 
 export function cityForLevel(level: number, homeCity: string): string {
@@ -235,7 +249,7 @@ function buildMaze(level: number, seed: number): string[] {
   // Place a SINGLE Magic Gate at the floor cell in the rightmost room column that
   // is FARHEST from spawn (by corridor distance). Because BFS reports the shortest
   // path to the *nearest* gate, one far-corner gate makes that shortest path equal
-  // to the maze's longest route — the structural guarantee behind "no straight-line
+  // to the maze's longest route - the structural guarantee behind "no straight-line
   // wins". Victory pads sit just beyond it.
   const dist = Array.from({ length: R }, () => Array<number>(C).fill(-1));
   dist[startR][startC] = 0;

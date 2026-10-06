@@ -1,5 +1,5 @@
 // ============================================================================
-// GateModal — the "Magic Gate Locked" AI challenge overlay.
+// GateModal - the "Magic Gate Locked" AI challenge overlay.
 //
 // Rendered when the Kaboom player walks into the closed Magic Gate. The game
 // is paused while this modal is open. It shows the live weather + risk
@@ -9,13 +9,14 @@
 // The actual verdict comes from `onSubmit` (the parent), which reuses the
 // project's existing complete_level demo/on-chain logic. Four verdict shapes are
 // rendered: PASS; a genuine AI-judged-unsafe FAIL (shake); a specific TRANSACTION
-// ERROR shown verbatim — wallet rejection / revert / insufficient funds / network
+// ERROR shown verbatim - wallet rejection / revert / insufficient funds / network
 // (no shake, no generic "AI said no"); and a validator CONGESTION TIMEOUT (60s,
 // no shake, "may finalize later").
 // ============================================================================
 import { useState } from 'react';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
 import type { LevelOutcome, RiskAnalysis, WeatherSnapshot } from './types';
+import { HashLink, payoutStatusText } from './components/TxLink';
 
 interface Props {
   open: boolean;
@@ -48,7 +49,7 @@ const TIER_BADGE: Record<string, string> = {
 // Both states MUST restate the base transform: `animate` targets a variant NAME, and
 // Framer Motion only animates properties present in the active variant. Because the card
 // starts (initial) at opacity 0 / scale 0.85 / y 24, variants that listed only `x` left the
-// card permanently transparent — this was the "backdrop shows but content is hidden" bug.
+// card permanently transparent - this was the "backdrop shows but content is hidden" bug.
 const shake: Variants = {
   idle: { x: 0, scale: 1, opacity: 1, y: 0 },
   shake: { x: [-6, 6, -6, 6, -3, 3, 0], scale: 1, opacity: 1, y: 0 },
@@ -91,7 +92,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
     } catch {
       // writeCompleteLevel now maps wallet-rejection / revert / funding / timeout into a
       // returned outcome, so reaching here means an unexpected failure in the promise
-      // chain. Show a specific, neutral "network error" — never a false "Quest Failed"
+      // chain. Show a specific, neutral "network error" - never a false "Quest Failed"
       // AI verdict and never a false congestion state.
       res = {
         level: 0,
@@ -202,14 +203,14 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
               <div className="rounded-card border border-white/10 bg-white/5 p-3">
                 <p className="text-[10px] uppercase tracking-wider text-slate-400">Live Conditions</p>
                 <p className="mt-1 text-sm font-semibold text-white">
-                  {weather?.condition ?? '—'} {condEmoji}
+                  {weather?.condition ?? '-'} {condEmoji}
                 </p>
                 <p className="mt-0.5 font-mono text-xs text-slate-400">{conditionLine}</p>
               </div>
               <div className="flex flex-col items-center justify-center rounded-card border p-3">
                 <div className={`rounded-pill border px-4 py-2 text-center ${risk ? TIER_BADGE[risk.risk_tier] : 'border-white/10 bg-white/5'}`}>
                   <p className="text-2xl font-bold leading-none">
-                    {risk ? `${risk.multiplier.toFixed(1)}x` : '—'}
+                    {risk ? `${risk.multiplier.toFixed(1)}x` : '-'}
                   </p>
                   <p className="mt-1 font-mono text-[10px] tracking-widest">{risk?.risk_tier ?? 'RISK'}</p>
                 </div>
@@ -241,13 +242,13 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                 </button>
               </div>
             ) : mode === 'verdict' && result && isTimeout ? (
-              // ---- Validator congestion (NOT a failure — no shake) ----
+              // ---- Validator congestion (NOT a failure - no shake) ----
               <div className="rounded-card border border-warning/50 bg-warning/10 p-4">
                 <p className="text-lg font-bold text-warning">⏳ Validators congested</p>
                 <p className="mt-1 text-sm text-slate-200">{result.reasoning}</p>
                 <p className="mt-2 font-mono text-[11px] text-slate-400">
                   StudioNet is taking longer than 60s to reach consensus. Your transaction may
-                  still finalize on-chain — this was not an AI failure.
+                  still finalize on-chain - this was not an AI failure.
                 </p>
                 <div className="mt-4 flex gap-2">
                   <button
@@ -282,7 +283,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                 </p>
                 <p className="mt-1 text-sm text-slate-200">
                   {errorMessage
-                    ? 'Nothing was charged and this level was not marked conquered — fix the issue and try again.'
+                    ? 'Nothing was charged and this level was not marked conquered - fix the issue and try again.'
                     : result.reasoning}
                 </p>
                 {result.success ? (
@@ -294,21 +295,25 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                         (× {result.risk.multiplier.toFixed(1)} risk multiplier)
                       </span>
                     </p>
-                    <p className="mt-1 font-mono text-[11px] leading-relaxed text-slate-400">
+                    <p className="mt-1 font-mono text-[11px] leading-relaxed text-slate-400" data-testid="settlement-proof">
                       {result.onChain ? (
                         <>
-                          ⛓ Settled on-chain — validators transferred GEN straight to your wallet
+                          <span data-testid="verdict-status">⛓ Verdict settled on-chain</span>
                           {result.txHash ? (
                             <>
-                              {' '}· tx{' '}
-                              <span className="text-secondary">
-                                {result.txHash.slice(0, 10)}…{result.txHash.slice(-6)}
-                              </span>
+                              {' '}· tx <HashLink hash={result.txHash} testId="tx-hash-link" />
+                            </>
+                          ) : null}
+                          <br />
+                          <span data-testid="payout-status">{payoutStatusText(result.payoutStatus, result.creditGen)}</span>
+                          {result.payoutTxHash ? (
+                            <>
+                              {' '}· payout tx <HashLink hash={result.payoutTxHash} testId="payout-tx-link" />
                             </>
                           ) : null}
                         </>
                       ) : (
-                        <>🎮 Demo — reward simulated locally. Connect a wallet to settle on-chain.</>
+                        <>🎮 Demo - reward simulated locally. Connect a wallet to settle on-chain.</>
                       )}
                     </p>
                     {/* ---- Navigation-efficiency breakdown ---- */}
@@ -342,7 +347,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                       )}
                       {result.efficiency === 'Perfect' && (
                         <p className="mt-2 text-xs font-semibold text-success">
-                          Flawless navigation — speed bonus applied! ⚡
+                          Flawless navigation - speed bonus applied! ⚡
                         </p>
                       )}
                     </div>
@@ -352,7 +357,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                       onClick={onClose}
                       className="mt-4 w-full rounded-pill bg-primary py-2.5 font-bold text-white transition-colors hover:bg-primary/90"
                     >
-                      {result.onChain ? 'Reward sent — open the gate →' : 'Open the gate →'}
+                      {result.onChain ? 'Open the gate · verdict settled →' : 'Open the gate →'}
                     </motion.button>
                   </>
                 ) : (

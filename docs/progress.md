@@ -88,3 +88,185 @@ one LLM call, and enforcing EXACT validator consensus on payout values.
 - README §10 and SUBMISSION Contract Link rewritten for the validator-consensus redeploy,
   new address, deploy/on-chain evidence, 125-test count, and Perfect 1.20x cap. Preview-heuristic
   divergence documented honestly.
+
+---
+
+# Progress log: payout-transfer fix (P1)
+
+Goal: fix the failed payout transfer (house debited, player received nothing) and make the
+UI/docs honest about what StudioNet can and cannot do.
+
+## P1.1 evidence (DONE)
+- Pulled all 14 triggered payout txs (13 from `docs/round_raw` + the user's example) via the SDK.
+- 14/14 fail: `execution_result=ERROR`, `result_name=NO_MAJORITY`, `num_of_rounds=0`, leader
+  receipt msg decodes to "Contract 0x... not found". Structure: from = weatherquest contract,
+  to = player EOA, value = payout, `triggered_on=finalized`, `triggered_by` = parent complete_level.
+- Evidence: `docs/p1_triggered_txs.json`.
+
+## P1.2 minimal four-pattern test (DONE)
+- `contracts/transfer_test.py` deployed to StudioNet (v3 `0xAbf8cACd...3772`), funded, tested
+  A) immediate `emit_transfer`, B) `on=accepted`, C) `on=finalized`, D) the current broken
+  `get_contract_at().emit_transfer`. Patterns A/B/C via `@gl.evm.contract_interface` are rejected by
+  StudioNet validators with `exit_code 1`; pattern D reaches SUCCESS on the main tx but its triggered
+  transfer still fails "Contract not found". No EOA native balance ever increased.
+- Discovery: `balance: u256` as a storage field SHADOWS `gl.Contract.balance`; do not declare it.
+- Discovery: on StudioNet the deployed address is in the deploy tx `to_address`, and `get_code()`
+  returns empty for every contract (not a deployment check). Native balance moves only after FINALIZED.
+- Evidence: `docs/p1_transfer_test_results.json`.
+
+## P1.3 sibling + SDK comparison (DONE, SOURCE only)
+- `devbounty-genlayer` uses the same `@gl.evm.contract_interface` EthSend pattern; their own test
+  comment says it "does NOT prove the network moves value". `genlayer-freelance-escrow-arbitration`
+  has the same broken `get_contract_at().emit_transfer` pattern. Both SOURCE-read only; no other
+  project's credentials touched.
+
+## P1.4 root cause + fix (DONE)
+- Root cause: on this runner (pinned `py-genlayer:1jb45aa8...`) NEITHER emit_transfer path can
+  deliver native GEN to an EOA on StudioNet.
+- Fix: replaced all four `emit_transfer` calls with an internal credit ledger (`credits: TreeMap`,
+  `total_credits_atto`, `_credit()`, view `get_credit()`). The house keeps the GEN; the payout is
+  recorded per address and is withdrawable once the platform supports EthSend.
+- `genvm-lint check`: ok, 15 methods (9 view, 6 write).
+- `pytest tests/direct/`: 131 passed (125 original + 6 new credit-accounting tests). On Windows the
+  pinned gltest loader crashes on temp-file unlink (fd 0 still open); `scripts/wq_run_tests.py`
+  defers that unlink so the real assertions run. CI/Linux unaffected.
+- NEW contract `0x2d764187A908d1677510c5E7FE69e8e7C1810299` (deploy tx `0xcb2a7df0...87eda0`,
+  FINALIZED/SUCCESS). Funded 30 GEN (deposit tx `0xef9bbe5b...06590`). Real `complete_level(1,
+  Istanbul, ...)` tx `0x46a7b795...67ed` -> FINALIZED / MAJORITY_AGREE / 64s / 0 triggered txs;
+  `get_credit(player)` = 120000000000000000 atto (0.12 GEN = 0.1 base x 1.00 x 1.20 Perfect) and
+  `contract_balance()` stayed 30.0 GEN. Evidence: `docs/p1_credit_verify.json`.
+- Address updated in deploy workflow, README, SUBMISSION, `scripts/wq_round.py`, and the pwtest
+  tools; old address kept only as "previous deployment".
+
+## P1.5 honest limitation (applies)
+- Native GEN to a wallet is NOT possible on StudioNet and was NOT verified on any testnet; the
+  previous "it works on Testnet" claim is removed. The UI must not say "reward sent" (P2), and
+  manual testnet steps are recorded in the final report.
+
+---
+
+# Progress log: settlement tx link (P2)
+
+Goal: after a level settles, the player can open the settlement tx and see the payout state.
+- `frontend/src/components/TxLink.tsx` renders the FULL 66-char hash as a link to
+  `https://explorer-studio.genlayer.com/tx/<hash>` (`target=_blank`, `rel=noopener noreferrer`),
+  a shortened visual is allowed only when the href, a `title` and a Copy button all carry the
+  full hash.
+- Verdict and payout are shown separately: the settlement tx shows "Verdict settled" and the
+  payout path shows "Payout: pending / sent / failed". On StudioNet there is no triggered payout
+  tx (the credit is an on-chain ledger entry), so the payout line reflects the credit state, never
+  a false "reward sent".
+- Playwright assertions in `tools/pwtest` check the link exists, its href contains the full
+  66-char hash, and the payout status text matches the recorded state.
+
+---
+
+# Progress log: on-chain round on the final contract (P3)
+
+Contract `0x2d764187A908d1677510c5E7FE69e8e7C1810299`, StudioNet. Evidence:
+`docs/round_results.json` + `docs/round_raw/`. Harness `scripts/wq_round.py`; decoded leader
+receipts via `scripts/wq_p3_report.py` / `scripts/wq_p3_stats.py` (no msgpack module, byte decode).
+
+## P3 successes (DONE, 12 credited, all clean)
+- Campaign levels 2..10 on one fresh throwaway account (`p3_L2_Tokyo` .. `p3_L10_Tromso`), plus
+  level 1 Istanbul from 3 distinct fresh accounts (`p3_free_L1_Istanbul_{0,1,2}`). StudioNet is
+  gasless so fresh accounts need no funding.
+- 12/12 `FINALIZED` / `MAJORITY_AGREE`, 1 consensus round, 5/5 votes, exact payout
+  (`base * multiplier * efficiency / 10000`), and the per-account `get_credit` delta equal to the
+  payout (the recipient proof on StudioNet; native balance does not move by design).
+- L10 Tromso (o-slash) and L9 Moscow completed on-chain from the fresh campaign account.
+- L5 Singapore leader summary shows tropical conditions (hot, humid, overcast).
+
+## P3 rejects (DONE, the least-tested path)
+- Honest finding: a first attempt ran all reject cases while EVERY campaign city was Low tier
+  (multiplier < 150). At Low tier `_judge_action` guidance is "approve essentially any reasonable
+  action", and the deployed LLM APPROVED even the reckless and gibberish texts
+  (`docs/round_raw/p3_reject0..4`, success=true, credited, level marked completed). That path is
+  not a fund-moving risk (they paid exactly the agreed Low-tier amount) but it does NOT satisfy
+  "success must be false", so it was re-run properly.
+- To force genuine `success=false` the reject must land on a tier whose guidance rejects danger.
+  No campaign level was Medium+ at the contract's table coords (all Low right now) and no city in
+  a 74-city live scan reached High/Extreme. Level 1 is the free-form geocode path, so the rejects
+  were run there against cities currently at Medium (`scripts/wq_reject_scan.py`).
+- 6 reject cases (`p3r_reject0..5`) at Wellington(200), Tromso(180), San Juan(170), Guayaquil(170),
+  Durban(160), Cabo San Lucas(150): each reached `FINALIZED` / `MAJORITY_AGREE`, 1 consensus
+  round, 5/5 votes, `success=false`, `get_credit` delta 0, level NOT marked completed.
+- Each was followed by a SAME-account safe-action retry on the same level, all 6 passed and
+  credited EXACTLY: base 0.1 GEN x weather x 1.20 Perfect = 0.24 / 0.216 / 0.204 / 0.204 / 0.192 /
+  0.18 GEN (derived weather multipliers 200/180/170/170/160/150 match the live tier exactly).
+- Harness resilience added: submissions and status polls now ride out transient StudioNet 502 /
+  invalid-JSON responses (the first round aborted on one); `scripts/wq_round.py` `_submit` /
+  tolerant `wait_tx`.
+
+## P3 get_weather_multiplier probes (DONE)
+- `get_weather_multiplier("Tromso")` tx `0x5328b63f338afe46587c751c86ac13d225b9c8834ad29b4df39cff960a65b010`
+  -> MAJORITY_AGREE, 1.30x (Low, 6C wind 27 Overcast).
+- `get_weather_multiplier("Singapore")` tx `0x72f784db8ed806f1730e67f68edf02c664d0bbb86239a2bacdffb98b1b160e29`
+  -> MAJORITY_AGREE, 1.20x (Low, 27C, 88% humidity, Overcast).
+
+## P3 timing + success rate
+- Time to ACCEPTED over the 18 credited successful runs (12 successes + 6 safe retries):
+  min 21.6s, median 21.7s, max 42.7s.
+- Clean consensus 18/18; exact payout 18/18; success rate 100% (no Validators Timeout, no
+  NO_MAJORITY across the whole round). Consensus rounds 1-2; 5 validators voted every time.
+
+---
+
+# Progress log: preview matches the contract (P4)
+
+Goal: `previewRisk` shows the SAME tier + multiplier as the contract settles, and the preview GEN
+uses the contract payout formula.
+- Exact integer port in `frontend/src/lib/risk.ts` (`snapFromWeather`, `codeClass`,
+  `riskFromSnapshot`, `tierFromScore`, `tierFor`), a value-for-value mirror of `_snap_from_raw`,
+  `_code_class`, `_risk_from_snapshot`. `frontend/src/lib/weather.ts` `previewRisk` delegates to it;
+  no float heuristics remain in the preview path.
+- `payoutGenExact` in `frontend/src/lib/maps.ts` computes `base * multiplier_x100 * eff_x100 /
+  10000` in BigInt atto (Perfect 1.20x), used by the demo path and as the fallback in the on-chain
+  path in `contract.ts` (which prefers the real settled credit `res.creditWei`).
+- `frontend/tests/risk.test.mjs`: 10 `node:test` cases run the same boundary table as the Python
+  direct tests (CALM 100 Low, WINDY 160 Medium, STORM clamp 500, every wind/precip/temp/code band
+  edge, tier thresholds, payout identity incl L1 100x120 = 0.12 and L10 500x120 = 6). 10/10 pass
+  under the bundled Node. `npm test` wired and added as a CI step.
+- `tsc -b` exit 0 and `vite build` exit 0. Live-site preview-vs-payout screenshot verification is
+  pending the Pages deploy in P6 (no `frontend/.env`; the deploy workflow injects
+  `VITE_CONTRACT_ADDRESS`).
+
+---
+
+# Progress log: hygiene and docs (P6)
+
+## Em dash removal (DONE)
+- Scanned every tracked file for U+2014. 22 files carried 82 em dashes total; all replaced
+  (hyphen, colon or a rewritten sentence). A clean re-scan of `git ls-files` reports 0 remaining.
+- The two edited docs (`README.md`, `SUBMISSION.md`) were re-scanned after the rewrite and contain
+  0 em dashes.
+
+## Secret scan (DONE)
+- Read the value of `GENLAYER_PRIVATE_KEY` from this project's own `.env` (never printed it) and
+  searched every tracked and untracked file for that exact hex: it appears in NONE.
+- The only hex-64 / token-word pattern hits are public chain data (tx_execution_hash, validator
+  vote hashes, signed_rollup blobs under `docs/round_raw/`) and env-var NAMES in validator config
+  (`LLM_ROUTER_API_KEY`, `OPENROUTERAPIKEY`), not values.
+- `frontend/tsconfig.node.tsbuildinfo` was accidentally tracked; untracked it with
+  `git rm --cached` (file kept on disk; `*.tsbuildinfo` is already in `.gitignore`).
+
+## Docs numbers (DONE)
+- README §11 preview caveat rewritten for the P4 exact port; §12 rewritten for the P3 round on the
+  final contract `0x2d764187...0299`: 12 credited successes, 6 Medium `success=false` rejects each
+  with a credited same-account safe retry, 2 multiplier probes; column header "Rotation" replaced
+  with "Consensus rounds" (value 1 = MAJORITY_AGREE on the first round, no rotation); house funded
+  to 30.0 GEN via `0xef9bbe5b...` and left at 30.0 (credits, not native transfers); timing min 21.6s
+  / median 21.7s / max 42.7s over the 18 credited runs; honest note on the earlier Low-tier
+  over-approving rejects. SUBMISSION.md updated to match and the unverified "native credit works on
+  Testnet" claim removed.
+
+## Final validation (DONE)
+- `genvm-lint check contracts/weatherquest.py`: lint + validation pass, 15 methods (9 view, 6 write);
+  pinned runner line unchanged.
+- `pytest tests/direct/`: 131 passed.
+- `node tests/risk.test.mjs`: 10/10 pass; `tsc -b` exit 0; `vite build` exit 0 with the final address
+  baked in (local bundle contains `0x2d764187...0299`, not the old `0x8fc4bc48...`).
+
+## Remaining
+- Commit, push to main, wait for CI + Pages green, re-check the live bundle address, then the P5
+  live-UI Playwright pass against the deployed final-contract bundle.

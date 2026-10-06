@@ -129,7 +129,7 @@ export default function App() {
   const [session, setSession] = useState(0);
   // Bumped every time the closed gate is touched so the GateModal remounts fresh
   // (resets select/judging/verdict state). It is deliberately SEPARATE from
-  // `session`, which keys the Kaboom canvas — bumping `session` here would remount
+  // `session`, which keys the Kaboom canvas - bumping `session` here would remount
   // the game and teleport the player back to spawn mid-level.
   const [gateNonce, setGateNonce] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
@@ -178,7 +178,7 @@ export default function App() {
         setWeather(w);
         setRisk(previewRisk(w));
       })
-      .catch(() => alive && setBanner("Weather service unavailable — showing offline preview."));
+      .catch(() => alive && setBanner("Weather service unavailable - showing offline preview."));
     return () => {
       alive = false;
     };
@@ -200,7 +200,7 @@ export default function App() {
       setLevelUp(null);
       // EVERY level requires the AI gate challenge, so the gate always starts closed.
       // The lone exception is an ON-CHAIN replay of an already-settled level, where
-      // re-calling complete_level would trip the contract's anti-cheat revert — there
+      // re-calling complete_level would trip the contract's anti-cheat revert - there
       // we open the gate so the player can simply stroll to the ★. In Demo Mode,
       // progress persists locally but the challenge is still mandatory each time,
       // which is why a freshly-advanced level no longer greets you with an open gate.
@@ -209,7 +209,7 @@ export default function App() {
       setGateOpen(openGate);
       setBanner(
         openGate
-          ? `Level ${level} already settled on-chain — walk into the ★ zone to move on.`
+          ? `Level ${level} already settled on-chain - walk into the ★ zone to move on.`
           : "⛩ Reach the gate and answer the AI challenge to unlock it.",
       );
       setPhase("playing");
@@ -296,7 +296,7 @@ export default function App() {
   const handleVictory = useCallback(() => {
     fireConfetti();
     if (currentLevel >= MAX_LEVEL) {
-      setBanner("🏆 Campaign complete — you conquered every weather world!");
+      setBanner("🏆 Campaign complete - you conquered every weather world!");
       return;
     }
     const next = currentLevel + 1;
@@ -314,7 +314,7 @@ export default function App() {
       const [done, bal] = await Promise.all([fetchCompletedLevels(w), fetchGenBalance(w)]);
       setCompleted(done);
       if (bal != null) setBalance(bal);
-      setBanner(`⛓ Connected ${w.address.slice(0, 6)}…${w.address.slice(-4)} — playing on-chain.`);
+      setBanner(`⛓ Connected ${w.address.slice(0, 6)}…${w.address.slice(-4)} - playing on-chain.`);
     } catch (e) {
       setWallet((w) => ({ ...w, connecting: false }));
       setBanner(e instanceof Error ? `⚠ ${e.message}` : "Wallet connection failed.");
@@ -326,7 +326,7 @@ export default function App() {
     setWallet(w);
     setCompleted(await fetchCompletedLevels(w));
     setBalance(START_BALANCE);
-    setBanner("🎮 Back in Demo Mode — no wallet needed.");
+    setBanner("🎮 Back in Demo Mode - no wallet needed.");
   }, []);
 
   // Dev-only seams so the AI-gate modal, victory->advance, and level jumps can be

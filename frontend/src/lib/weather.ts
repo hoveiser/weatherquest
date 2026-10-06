@@ -1,5 +1,6 @@
 import axios from "axios";
 import type { RiskAnalysis, RiskTier, WeatherKind, WeatherSnapshot } from "../types";
+import { riskFromSnapshot, snapFromWeather } from "./risk";
 
 // In dev the Vite proxy keeps these same-origin; in production they resolve to
 // the public Open-Meteo hosts (free, no key). Base path chosen at runtime.
@@ -118,53 +119,39 @@ export async function getWeatherByCity(city: string): Promise<WeatherSnapshot> {
   return fetchWeather(geo);
 }
 
-const KIND_WEIGHT: Record<WeatherKind, number> = {
-  clear: 0,
-  cloud: 0.6,
-  fog: 1.2,
-  drizzle: 1.4,
-  rain: 2.0,
-  snow: 2.6,
-  storm: 3.4,
-};
-
 /**
- * Deterministic client-side risk PREVIEW. Mirrors the intent of the on-chain LLM
- * engine so the UI can show a live meter without a transaction. The authoritative
- * multiplier always comes from the contract's validator-consensus analysis.
+ * Deterministic client-side risk PREVIEW. Delegates to the exact integer port in
+ * ./risk (a value-for-value mirror of the contract's _snap_from_raw, _code_class
+ * and _risk_from_snapshot), so the meter, the tier and the multiplier shown agree
+ * with the value the validators settle on-chain for the same weather snapshot.
  */
 export function previewRisk(w: WeatherSnapshot): RiskAnalysis {
-  let score = KIND_WEIGHT[w.kind];
-  if (w.wind_speed_10m > 40) score += 1.2;
-  else if (w.wind_speed_10m > 25) score += 0.7;
-  else if (w.wind_speed_10m > 15) score += 0.3;
-  if (w.temperature_2m <= -5) score += 1.0;
-  else if (w.temperature_2m <= 0) score += 0.5;
-  else if (w.temperature_2m >= 35) score += 0.8;
-  if (w.precipitation > 10) score += 0.6;
-
-  const multiplier = Math.min(5, Math.max(1, Math.round((1 + score * 0.7) * 10) / 10));
+  const [risk_tier, multiplierX100] = riskFromSnapshot(snapFromWeather(w));
   return {
-    multiplier,
-    multiplierX100: Math.round(multiplier * 100),
-    risk_tier: tierFor(multiplier),
-    reasoning: reasoningFor(w, multiplier),
+    multiplier: multiplierX100 / 100,
+    multiplierX100,
+    risk_tier,
+    reasoning: reasoningFor(w, multiplierX100 / 100, risk_tier),
   };
 }
 
-export function tierFor(multiplier: number): RiskTier {
-  if (multiplier < 1.8) return "Low";
-  if (multiplier < 2.8) return "Medium";
-  if (multiplier < 4.0) return "High";
-  return "Extreme";
-}
+// Re-export the pure helpers so existing imports keep working; the canonical
+// implementation lives in ./risk (dependency-free and directly unit-testable).
+export { snapFromWeather, codeClass, riskFromSnapshot, tierFor, tierFromScore } from "./risk";
+export type { RiskSnapshot } from "./risk";
 
-function reasoningFor(w: WeatherSnapshot, m: number): string {
+function reasoningFor(w: WeatherSnapshot, m: number, tier: RiskTier): string {
   const parts: string[] = [];
-  parts.push(`${w.condition} at ${Math.round(w.temperature_2m)}°C`);
+  parts.push(`${w.condition} at ${Math.round(w.temperature_2m)}\u00b0C`);
   if (w.wind_speed_10m > 20) parts.push(`${Math.round(w.wind_speed_10m)} km/h winds`);
   if (w.precipitation > 2) parts.push(`${w.precipitation} mm precipitation`);
   const severity =
-    m < 1.8 ? "mild conditions" : m < 2.8 ? "notable hazards" : m < 4 ? "dangerous conditions" : "extreme, potentially life-threatening conditions";
-  return `${parts.join(", ")} — ${severity}. Risk multiplier ${m.toFixed(1)}x.`;
+    tier === "Low"
+      ? "mild conditions"
+      : tier === "Medium"
+        ? "notable hazards"
+        : tier === "High"
+          ? "dangerous conditions"
+          : "extreme, potentially life-threatening conditions";
+  return `${parts.join(", ")}: ${severity}. Risk multiplier ${m.toFixed(1)}x.`;
 }

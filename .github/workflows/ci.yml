@@ -1,4 +1,4 @@
-name: CI — Regression Tests
+name: CI - Regression Tests
 
 # Runs the GenLayer contract lint + direct-mode test suite, and a frontend
 # typecheck/build, on every push to main and every pull request.
@@ -47,8 +47,8 @@ jobs:
         # to `genvm-runners-all.tar.xz`, so the auto-resolved `latest` (v0.3.0-rcN)
         # 404s on a fresh runner and every direct-mode test errors during
         # contract load. Pin the last release that still ships `genvm-universal.tar.xz`
-        # (v0.2.16) — it carries this contract's runner hash
-        # `1jb45aa8...` — into the harness cache dir so it never hits the network.
+        # (v0.2.16) - it carries this contract's runner hash
+        # `1jb45aa8...` - into the harness cache dir so it never hits the network.
         env:
           GENV_PIN: v0.2.16
         run: |
@@ -76,5 +76,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - run: npm ci
+      - name: Frontend unit tests (risk + payout port)
+        run: npm test
       - name: Build (tsc -b && vite build)
         run: npm run build

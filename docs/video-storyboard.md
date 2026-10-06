@@ -1,12 +1,12 @@
-# WeatherGate — Demo Video Storyboard
+# WeatherGate - Demo Video Storyboard
 
 Target: **~84s**, **1920×1080**, **MP4 (H.264)**, **30 fps**, **burn-in captions** (white text, black
-outline, bottom center — see `captions.srt`). Record the **browser game**, not a terminal. The game's
+outline, bottom center - see `captions.srt`). Record the **browser game**, not a terminal. The game's
 selling point is *motion* (walking, confetti, the balance count-up, the fail shake), so a real screen
-recording beats a slideshow of stills — do that first, and use `scripts/build_demo.sh` to normalize +
+recording beats a slideshow of stills - do that first, and use `scripts/build_demo.sh` to normalize +
 add captions.
 
-## Option A — Record the live game, then caption it (recommended)
+## Option A - Record the live game, then caption it (recommended)
 
 ```bash
 # 1) Record your screen while playing (choose ONE):
@@ -19,7 +19,7 @@ ffmpeg -f x11grab -video_size 1920x1080 -framerate 30 -i :1.0+0,0 -t 90 docs/raw
 ./scripts/build_demo.sh
 ```
 
-## Option B — Assemble a narrated slideshow from captured frames
+## Option B - Assemble a narrated slideshow from captured frames
 
 Capture one PNG per storyboard shot into `docs/frames/` (`01.png`, `02.png`, … in play order), then:
 
@@ -39,10 +39,10 @@ Or drive exact per-shot timings with a manifest (`SECONDS  path`, one per line) 
    `window.__wgOpenGate()` in the DevTools console to pop the modal instantly without walking.)
 3. **Show the two outcomes.**
    - **SUCCESS:** click **`🏗️ Build a Raft`** (it fills the input), **Submit**, let *"AI Validators are
-     analyzing…"* show, and on **`✅ Quest Passed`** click **Claim** — capture the **confetti**, the
+     analyzing…"* show, and on **`✅ Quest Passed`** click **Claim** - capture the **confetti**, the
      **GEN Balance counting up** (top-left), the **gate turning green**, then **walk right into the ★
      Victory zone** for the second burst.
-   - **FAIL:** reopen the gate and submit a reckless action (e.g. **`🏃 Swim Across`**) — the modal
+   - **FAIL:** reopen the gate and submit a reckless action (e.g. **`🏃 Swim Across`**) - the modal
      **shakes** red with *"Quest Failed"* and the gate stays locked. (A fail only triggers when the live
      risk tier top-right reads **High/Extreme**; to force one, temporarily set `const CITY` in
      `frontend/src/App.tsx` to a currently-stormy city, record the fail, then revert it to `"London"`.)

@@ -24,8 +24,8 @@ import type { CampaignProgress, GenBalance } from "../types";
 const CHAIN_NAME = "studionet";
 const GEN_WEI = 1_000_000_000_000_000_000n;
 
-// StudioNet is chain id 61999 → hex 0xF22F. (0xF20F would be 61967 — a different
-// chain — so the hex MUST be derived from 61999, which is `0x${(61999).toString(16)}`.)
+// StudioNet is chain id 61999 → hex 0xF22F. (0xF20F would be 61967 - a different
+// chain - so the hex MUST be derived from 61999, which is `0x${(61999).toString(16)}`.)
 const STUDIONET_CHAIN_ID_DEC = 61999;
 const STUDIONET_CHAIN_ID_HEX = `0x${STUDIONET_CHAIN_ID_DEC.toString(16)}`; // 0xf22f
 
@@ -42,6 +42,14 @@ const STUDIONET_ADD_PARAMS = {
 const CONSENSUS_TIMEOUT_MS = 60_000;
 
 const CONSENSUS_TIMEOUT_SENTINEL = "__wg_consensus_timeout__";
+
+/** Explorer base for full tx links (the user-facing settlement link). */
+export const EXPLORER_BASE = "https://explorer-studio.genlayer.com";
+
+/** Build a StudioNet explorer URL for a 66-char tx hash (empty for a short hash). */
+export function explorerTxUrl(hash?: string): string {
+  return hash && hash.length >= 64 ? `${EXPLORER_BASE}/tx/${hash}` : "";
+}
 
 interface EthProvider {
   request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
@@ -126,7 +134,7 @@ export async function ensureStudioNet(): Promise<void> {
   } catch (err) {
     const code = providerErrorCode(err);
     if (code === 4902 || code === -32602) {
-      // Not in the wallet yet — add it, then (try to) switch onto it.
+      // Not in the wallet yet - add it, then (try to) switch onto it.
       await provider.request({ method: "wallet_addEthereumChain", params: [STUDIONET_ADD_PARAMS] });
       try {
         await switchToStudioNet();
@@ -135,7 +143,7 @@ export async function ensureStudioNet(): Promise<void> {
       }
       return;
     }
-    throw err; // user rejected the switch, or another error — surface it
+    throw err; // user rejected the switch, or another error - surface it
   }
 }
 
@@ -198,7 +206,7 @@ export async function readGenBalance(address: string): Promise<GenBalance> {
   return { address, wei, gen: Number(wei) / 1e18 };
 }
 
-/** campaign_progress(account) — non-consensus view, safe for the UI to trust. */
+/** campaign_progress(account) - non-consensus view, safe for the UI to trust. */
 export async function readCampaignProgress(address: string, contract: string): Promise<CampaignProgress> {
   const raw = await withChainRetry(async () => {
     const client = await makeClient(address);
@@ -216,6 +224,24 @@ export async function readCampaignProgress(address: string, contract: string): P
     maxLevel: Number(raw.max_level ?? 10),
     campaignPayoutAtto: BigInt(String(raw.campaign_payout_atto ?? "0")),
   };
+}
+
+/**
+ * get_credit(account) - the on-chain payout ledger for an address, in atto.
+ * StudioNet cannot move native GEN to a player EOA, so the contract records each
+ * payout here instead of transferring it; the house keeps the GEN. This view is
+ * non-consensus and safe for the UI to trust.
+ */
+export async function readGetCredit(address: string, contract: string): Promise<bigint> {
+  const raw = await withChainRetry(async () => {
+    const client = await makeClient(address);
+    return (await client.readContract({
+      address: contract as `0x${string}`,
+      functionName: "get_credit",
+      args: [address],
+    })) as Record<string, unknown>;
+  });
+  return BigInt(String(raw.credit_atto ?? "0"));
 }
 
 /**
@@ -239,6 +265,14 @@ function classifyWriteError(err: unknown): string {
   return "Network error. Please try again.";
 }
 
+/** Payout delivery state, reported separately from the verdict. */
+export type PayoutStatus =
+  | "none" // verdict did not pay (fail judgment)
+  | "credit" // payout recorded as on-chain credit (StudioNet cannot send native GEN)
+  | "pending" // a triggered transfer tx exists and has not resolved
+  | "sent" // a triggered transfer tx succeeded (native wallet credit)
+  | "failed"; // a triggered transfer tx failed
+
 export interface CompleteLevelResult {
   txHash: string;
   /** True when the level settled as PASSED (payout marked complete). */
@@ -249,10 +283,17 @@ export interface CompleteLevelResult {
    *  rejection, contract revert, insufficient funds, or network error). Undefined
    *  on success and on a plain congestion timeout. */
   errorMessage?: string;
+  /** Delivery state of the payout, separate from the verdict. */
+  payoutStatus: PayoutStatus;
+  /** Triggered transfer tx hash when the platform emits one (empty for the credit
+   *  ledger path). */
+  payoutTxHash?: string;
+  /** On-chain credit recorded for the player after a passing run, in atto. */
+  creditWei?: bigint;
 }
 
 /**
- * complete_level(level, city, action, optimal_steps, actual_steps) — gasless on
+ * complete_level(level, city, action, optimal_steps, actual_steps) - gasless on
  * StudioNet (value 0). The two step counts drive the on-chain efficiency
  * multiplier. Waits for consensus (capped at 60s) and then re-reads progress to
  * confirm settlement. On a chain-mismatch send error, switches to StudioNet and
@@ -297,12 +338,12 @@ export async function writeCompleteLevel(
       if (err instanceof Error && err.message === CONSENSUS_TIMEOUT_SENTINEL) {
         timedOut = true;
       } else {
-        throw err; // a genuine revert / execution error — mapped by the outer catch
+        throw err; // a genuine revert / execution error - mapped by the outer catch
       }
     }
 
     if (timedOut) {
-      return { txHash, completed: false, timedOut: true };
+      return { txHash, completed: false, timedOut: true, payoutStatus: "none" };
     }
 
     // StudioNet applies the payout on FINALIZED, which can lag the receipt by a few
@@ -316,15 +357,74 @@ export async function writeCompleteLevel(
           if (!completed) await new Promise((r) => setTimeout(r, 5000));
         }
       } catch {
-        /* progress read failed after finalize — treat as unsettled, not a hard error */
+        /* progress read failed after finalize - treat as unsettled, not a hard error */
       }
     }
 
-    return { txHash, completed, timedOut: false };
+    if (!completed) {
+      // Failed judgment: nothing was paid.
+      return { txHash, completed: false, timedOut: false, payoutStatus: "none" };
+    }
+
+    // The verdict settled as PASSED. Resolve the payout state separately. The
+    // credit-accounting contract records the payout in get_credit and emits no
+    // transfer; if a future runner emits a triggered transfer, surface its real
+    // status instead of claiming the wallet was credited.
+    let creditWei: bigint | undefined;
+    try {
+      creditWei = await readGetCredit(address, contract);
+    } catch {
+      creditWei = undefined;
+    }
+
+    let payoutStatus: PayoutStatus = "credit";
+    let payoutTxHash: string | undefined;
+    try {
+      const client = await makeClient(address);
+      const ids = (await client.getTriggeredTransactionIds({ hash: txHash as never })) as string[];
+      if (ids && ids.length > 0) {
+        payoutTxHash = String(ids[0]);
+        payoutStatus = await resolveTriggeredStatus(client, payoutTxHash);
+      }
+    } catch {
+      // triggered lookup unsupported: fall back to the honest credit state
+      payoutStatus = "credit";
+    }
+
+    return { txHash, completed, timedOut: false, payoutStatus, payoutTxHash, creditWei };
   } catch (err) {
-    // Wallet rejection / revert / insufficient funds / network — never a silent throw.
-    return { txHash, completed: false, timedOut: false, errorMessage: classifyWriteError(err) };
+    // Wallet rejection / revert / insufficient funds / network - never a silent throw.
+    return { txHash, completed: false, timedOut: false, errorMessage: classifyWriteError(err), payoutStatus: "none" };
   }
+}
+
+/**
+ * Poll a triggered transfer tx up to the 5 minute cap and map its lifecycle to a
+ * payout status. sent = finalized with SUCCESS execution; failed = a terminal
+ * non-success; pending = still unresolved after the cap.
+ */
+async function resolveTriggeredStatus(client: Awaited<ReturnType<typeof makeClient>>, hash: string): Promise<PayoutStatus> {
+  const cap = 300_000;
+  const t0 = Date.now();
+  while (Date.now() - t0 < cap) {
+    let tx: Record<string, unknown>;
+    try {
+      tx = (await client.getTransaction({ hash: hash as never })) as unknown as Record<string, unknown>;
+    } catch {
+      return "pending";
+    }
+    const status = String(tx.statusName ?? tx.status ?? "");
+    const exec = String(tx.txExecutionResultName ?? "");
+    if (status === "FINALIZED" || status === "UNDETERMINED") {
+      if (status === "UNDETERMINED" || exec === "ERROR") return "failed";
+      return "sent";
+    }
+    if (status === "VALIDATORS_TIMEOUT" || status === "LEADER_TIMEOUT" || status === "CANCELED") {
+      return "failed";
+    }
+    await new Promise((r) => setTimeout(r, 8000));
+  }
+  return "pending";
 }
 
 export const GEN_UNIT = GEN_WEI;

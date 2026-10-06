@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   // Relative base + HashRouter (see main.tsx) makes the built bundle work at any
-  // mount point — including a GitHub Pages project site (/repo/) — with no config.
+  // mount point - including a GitHub Pages project site (/repo/) - with no config.
   base: "./",
   build: {
     // kaboom 3000.1.17 emits its enums with the ES2021 logical-assignment operator

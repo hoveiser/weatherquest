@@ -44,7 +44,7 @@ export default function HUD({
   const onchain = mode === "onchain";
   return (
     /* A top BAR rendered in normal flow ABOVE the canvas (no longer an absolute
-       overlay) — this fixes the HUD covering the playable field. */
+       overlay) - this fixes the HUD covering the playable field. */
     <div className="relative z-20 mb-2 flex flex-wrap items-start justify-between gap-2 rounded-card border border-white/10 bg-white/5 px-3 py-2 shadow-card">
         <div className="flex flex-col gap-2">
           {/* Wallet control */}

@@ -111,7 +111,7 @@ export interface LevelOutcome {
   onChain?: boolean;
   alreadyCompleted?: boolean;
   /** True when an on-chain submission hit the 60s validator-consensus timeout
-   *  (StudioNet congestion). This is NOT an AI failure — the UI must show a
+   *  (StudioNet congestion). This is NOT an AI failure - the UI must show a
    *  "may finalize later" notice and let the player close, never "Quest Failed". */
   timedOut?: boolean;
   /** Specific, human-readable failure reason when an on-chain write never settled
@@ -120,4 +120,10 @@ export interface LevelOutcome {
    *  and the failure must NOT shake like an AI-judged-unsafe verdict. */
   errorMessage?: string;
   txHash?: string;
+  /** Payout delivery state, reported separately from the verdict. */
+  payoutStatus?: "none" | "credit" | "pending" | "sent" | "failed";
+  /** Triggered transfer tx hash when the platform emits one (empty for credit path). */
+  payoutTxHash?: string;
+  /** On-chain credit recorded for the player after a passing run, in GEN. */
+  creditGen?: number;
 }

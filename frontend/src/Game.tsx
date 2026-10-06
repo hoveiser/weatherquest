@@ -3,7 +3,7 @@ import kaboom, { type KaboomCtx } from "kaboom";
 import { generateMap, levelTheme, SPAWN_CELL } from "./lib/maps";
 
 /**
- * WeatherGate — a 2D top-down mini RPG built on Kaboom.js.
+ * WeatherGate - a 2D top-down mini RPG built on Kaboom.js.
  *
  * This file is the GAME LAYER only. It renders a tile field (grass / river / a
  * Magic Gate doorway / a victory zone), drives the player with WASD or the
@@ -24,12 +24,12 @@ const SPEED = 190; // px / second
 
 // Gate trigger box. A closed gate tile is centred on a grid cell, and the player is
 // physically stopped PLAYER_HALF + TILE/2 = 27px from that centre. The old trigger used
-// a 0.7*TILE (22px) radius, which sat *inside* that 27px standoff — so it could never
+// a 0.7*TILE (22px) radius, which sat *inside* that 27px standoff - so it could never
 // fire. Widen X just past the contact point so touching the gate opens the challenge,
 // and keep Y tight to a gate row so the solid wall directly above/below the gate stays
 // non-triggering. (The gate remains solid while closed, so Victory can't be bypassed.)
-const GATE_TRIGGER_X = TILE * 1.05; // ~33.6px — comfortably past the 27px contact point
-const GATE_TRIGGER_Y = TILE * 0.85; // ~27.2px — must be aligned to a gate row (rows 6-8)
+const GATE_TRIGGER_X = TILE * 1.05; // ~33.6px - comfortably past the 27px contact point
+const GATE_TRIGGER_Y = TILE * 0.85; // ~27.2px - must be aligned to a gate row (rows 6-8)
 
 // Cell legend: "." grass  "#" tree/wall  "~" river  "G" gate  "V" victory zone
 // Layouts are generated per difficulty level in lib/maps.ts (see generateMap).
@@ -147,13 +147,13 @@ export default function Game({
         tiles: {
           // Grass floor (non-solid), subtle two-tone checker for a tiled feel.
           ".": (p) => [k.rect(TILE, TILE), k.color(...checker(p))],
-          // Trees / rock wall — solid.
+          // Trees / rock wall - solid.
           "#": () => [k.rect(TILE, TILE), k.color(16, 42, 32), k.outline(2, k.rgb(9, 22, 18))],
-          // River — solid, cool blue.
+          // River - solid, cool blue.
           "~": () => [k.rect(TILE, TILE), k.color(45, 110, 230), k.outline(1, k.rgb(120, 180, 255))],
-          // Magic Gate — solid until opened, neon frame.
+          // Magic Gate - solid until opened, neon frame.
           "G": () => [k.rect(TILE, TILE), k.color(107, 70, 193), k.outline(3, k.rgb(255, 107, 53)), "gate"],
-          // Victory zone — glowing green pad.
+          // Victory zone - glowing green pad.
           "V": () => [k.rect(TILE, TILE), k.color(72, 187, 120), k.outline(2, k.rgb(150, 240, 190)), "victory"],
         },
       });
@@ -183,7 +183,7 @@ export default function Game({
 
       // Navigation-efficiency tracker. `steps` counts every grid-cell transition
       // (including revisits), which is directly comparable to the BFS shortest-path
-      // length the contract scores against — wandering inflates it, a direct route
+      // length the contract scores against - wandering inflates it, a direct route
       // does not. It is client-supplied navigation data, never consensus state.
       let steps = 0;
       let lastCellC: number = SPAWN_CELL.c;

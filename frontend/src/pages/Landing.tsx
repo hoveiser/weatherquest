@@ -77,7 +77,7 @@ export default function Landing() {
             {kind === "rain" && <CloudRain size={16} className="text-primary" />}
             {kind === "snow" && <Snowflake size={16} className="text-secondary" />}
             {kind === "clear" && <Sun size={16} className="text-warning" />}
-            Simulating <span className="font-semibold capitalize text-ink">{kind}</span> conditions —
+            Simulating <span className="font-semibold capitalize text-ink">{kind}</span> conditions -
             higher risk, higher reward
           </div>
         </div>
@@ -117,7 +117,7 @@ export default function Landing() {
         <div className="card mt-10 flex flex-col items-center justify-between gap-4 p-6 text-center sm:flex-row sm:text-left">
           <div>
             <h3 className="text-lg font-bold text-ink">Ready to test the storm?</h3>
-            <p className="text-sm text-muted">Jump into the demo quest board — no wallet needed.</p>
+            <p className="text-sm text-muted">Jump into the demo quest board - no wallet needed.</p>
           </div>
           <Button onClick={() => (window.location.hash = "#/dashboard")}>
             Launch Quest Board <ArrowRight size={16} aria-hidden />

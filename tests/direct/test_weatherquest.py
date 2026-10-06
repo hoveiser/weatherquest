@@ -444,3 +444,87 @@ def test_get_level_reward_progressive_table(direct_vm, direct_deploy, direct_ali
     assert l10["difficulty"] == "Hard"
     assert int(l10["base_reward_atto"]) == (100 * GEN) // 100
     assert int(l10["max_payout_atto"]) == (500 * GEN) // 100  # 1.0 * 5.0x
+
+
+# --- Internal credit accounting (StudioNet cannot move native GEN to EOAs) ---
+# On StudioNet emit_transfer to an EOA fails "Contract not found", so payouts
+# are recorded as a per-address credit that the house keeps. These tests lock
+# the invariant: credit == exact payout, house native balance untouched, credits
+# accumulate, and unpaid addresses read zero.
+def test_credit_matches_payout_on_complete_level(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm, WINDY)  # 1.60x
+    mock_llm_judgment(direct_vm, success=True)
+    assert int(c.get_credit(hex_addr(direct_bob))["credit_atto"]) == 0
+    direct_vm.sender = direct_bob
+    res = c.complete_level(1, "London", "Take shelter indoors", 20, 25)
+    payout = int(res["payout"])
+    assert payout == (16 * GEN) // 100
+    assert int(c.get_credit(hex_addr(direct_bob))["credit_atto"]) == payout
+    # The GEN never leaves the house: native balance is unchanged by the credit.
+    assert int(c.contract_balance()) == 1000 * GEN
+
+
+def test_credit_accumulates_across_levels(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm, CALM)  # free-form L1 1.0x
+    mock_forecast_only(direct_vm, CALM)  # table L2 (Tokyo) 1.0x
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    r1 = c.complete_level(1, "London", "Take shelter indoors", 20, 20)
+    r2 = c.complete_level(2, "Tokyo", "Take shelter indoors", 20, 20)
+    total = int(r1["payout"]) + int(r2["payout"])
+    assert int(c.get_credit(hex_addr(direct_bob))["credit_atto"]) == total
+    assert int(c.contract_balance()) == 1000 * GEN
+
+
+def test_credit_isolated_per_account(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    mock_weather(direct_vm, CALM)
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    c.complete_level(1, "London", "Take shelter indoors", 20, 20)
+    # A different address is owed nothing.
+    assert int(c.get_credit(hex_addr(direct_alice))["credit_atto"]) == 0
+
+
+def test_submit_success_credits_player(direct_vm, direct_deploy, direct_alice, direct_bob):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    qid = make_quest(direct_vm, direct_alice, c, gen=10, hours=24)
+    mock_weather(direct_vm, WINDY)  # 1.60x
+    mock_llm_judgment(direct_vm, success=True)
+    direct_vm.sender = direct_bob
+    res = c.submit_action(qid, "Take cover indoors")
+    assert int(res["payout"]) == 16 * GEN
+    assert int(c.get_credit(hex_addr(direct_bob))["credit_atto"]) == 16 * GEN
+    assert int(c.contract_balance()) == 1000 * GEN
+
+
+def test_submit_failure_credits_creator_refund(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    qid = make_quest(direct_vm, direct_alice, c, gen=10, hours=24)
+    mock_weather(direct_vm, CALM)
+    mock_llm_judgment(direct_vm, success=False)
+    direct_vm.sender = direct_bob
+    res = c.submit_action(qid, "Run a marathon in a blizzard")
+    assert int(res["payout"]) == 0
+    # Creator is refunded the base by credit, not by a native transfer.
+    assert int(c.get_credit(hex_addr(direct_alice))["credit_atto"]) == 10 * GEN
+    assert int(c.contract_balance()) == 1000 * GEN
+
+
+def test_claim_expired_credits_creator(direct_vm, direct_deploy, direct_alice):
+    c = deploy(direct_deploy, direct_vm, direct_alice)
+    warp(direct_vm, "2026-10-03T09:15:00")
+    qid = make_quest(direct_vm, direct_alice, c, gen=10, hours=1)
+    warp(direct_vm, "2026-10-04T09:15:00")  # expired, no submissions
+    direct_vm.sender = direct_alice
+    c.claim_expired_quest(qid)
+    assert c.get_quest(qid)["status"] == "Claimed"
+    assert int(c.get_credit(hex_addr(direct_alice))["credit_atto"]) == 10 * GEN

@@ -9,7 +9,7 @@ import type {
 } from "../types";
 import { getWeatherByCity, previewRisk } from "./weather";
 import { genToAtto, attoToGen } from "./format";
-import { baseRewardGen, cityForLevel, difficultyBand, LEVEL_BASE_GEN } from "./maps";
+import { cityForLevel, difficultyBand, LEVEL_BASE_GEN, payoutGenExact } from "./maps";
 import * as gl from "./genlayer";
 
 /**
@@ -22,7 +22,7 @@ import * as gl from "./genlayer";
  * localStorage keyed to a stable synthetic identity.
  *
  * The "Connect GenLayer Wallet" button switches the SAME call sites over to real
- * on-chain play via the genlayer-js SDK (see lib/genlayer.ts) — complete_level /
+ * on-chain play via the genlayer-js SDK (see lib/genlayer.ts) - complete_level /
  * campaign_progress against the deployed StudioNet contract.
  */
 const CONTRACT_ADDRESS = (import.meta.env.VITE_CONTRACT_ADDRESS as string) || "";
@@ -31,7 +31,7 @@ export const USE_ONCHAIN = Boolean(CONTRACT_ADDRESS) && import.meta.env.VITE_ONC
 
 export const DEMO_ADDR = "0xWeatherQuestDemo00000000000000000000000000";
 
-// Verbs that only become dangerous when the weather turns rough — i.e. activities
+// Verbs that only become dangerous when the weather turns rough - i.e. activities
 // that expose the player to the elements. Ordinary ground movement (walk / run /
 // cycle / hike) is deliberately NOT here: it is a reasonable action in calm/mild
 // weather and must never be auto-rejected (that was the "AI rejects everything"
@@ -39,7 +39,7 @@ export const DEMO_ADDR = "0xWeatherQuestDemo00000000000000000000000000";
 const RECKLESS = ["fly", "kite", "swim", "climb", "sail", "raft", "surf", "boat", "paraglide", "skydiv", "kayak"];
 const CAUTIOUS = ["cover", "shelter", "snowmobile", "drive", "wait", "stay", "indoor", "equipment", "hunker", "prepare", "warm", "dry", "anchor", "bundl", "helmet", "postpone", "avoid", "detour"];
 
-// Verbs that stay clearly dangerous even in MILD (Medium) weather — airborne or
+// Verbs that stay clearly dangerous even in MILD (Medium) weather - airborne or
 // height moves the wind can turn on. The demo Medium tier rejects ONLY these (when
 // no caution is shown), so ordinary actions like swim / sail / walk / drive pass,
 // mirroring the contract's lenient "reject only clearly dangerous" Medium guidance.
@@ -60,7 +60,7 @@ function lsSet(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch {
-    /* storage disabled (private mode) — progress just won't persist */
+    /* storage disabled (private mode) - progress just won't persist */
   }
 }
 
@@ -218,7 +218,7 @@ async function completeLevelDemo(
       success: true,
       payoutGen: 0,
       risk,
-      reasoning: `Level ${level} (${city}) is already conquered — the gate stands open. Walk on through.`,
+      reasoning: `Level ${level} (${city}) is already conquered - the gate stands open. Walk on through.`,
       difficulty,
       city,
       optimalSteps: optimal,
@@ -246,15 +246,15 @@ async function completeLevelDemo(
   const mult = risk.multiplier.toFixed(1);
   if (risk.risk_tier === "Low") {
     success = true;
-    verdict = `Low risk (${mult}x): calm conditions — "${action}" is an easy call.`;
+    verdict = `Low risk (${mult}x): calm conditions - "${action}" is an easy call.`;
   } else if (risk.risk_tier === "Medium") {
     // Forgiving: only clearly dangerous airborne/height moves that ignore caution
-    // are rejected — swimming, sailing, walking or driving all pass in mild weather.
+    // are rejected - swimming, sailing, walking or driving all pass in mild weather.
     const clearlyDangerous = MEDIUM_DANGEROUS.some((k) => a.includes(k)) && !cautious;
     success = !clearlyDangerous;
     verdict = success
       ? `Medium risk (${mult}x): "${action}" is a reasonable response to mild conditions.`
-      : `Medium risk (${mult}x): "${action}" is clearly dangerous right now — pick a safer approach.`;
+      : `Medium risk (${mult}x): "${action}" is clearly dangerous right now - pick a safer approach.`;
   } else if (risk.risk_tier === "High") {
     success = cautious || !reckless;
     verdict = success
@@ -267,9 +267,8 @@ async function completeLevelDemo(
       : `Extreme risk (${mult}x): "${action}" exposes you to dangerous weather. Take shelter instead.`;
   }
 
-  const base = baseRewardGen(level);
-  // Final = base * weather-multiplier * efficiency-multiplier (integer-hundredths tier).
-  const payoutGen = success ? round4(base * risk.multiplier * (eff.x100 / 100)) : 0;
+  // Exact integer mirror of the contract payout: base * multiplier * efficiency / 10000.
+  const payoutGen = success ? payoutGenExact(level, risk.multiplierX100, eff.x100) : 0;
   if (success) {
     done.push(level);
     saveDemoProgress(done);
@@ -312,8 +311,14 @@ async function completeLevelOnChain(
   // error) is surfaced verbatim so the UI never shows a misleading generic AI verdict.
   const errorMessage = res.errorMessage;
   const success = !timedOut && !errorMessage && res.completed;
-  const base = baseRewardGen(level);
-  const payoutGen = success ? round4(base * risk.multiplier * (eff.x100 / 100)) : 0;
+  // Prefer the real on-chain credit (the contract's per-account get_credit delta)
+  // so the displayed payout is exactly what was paid; fall back to the same
+  // integer formula the contract uses when the credit read is unavailable.
+  const payoutGen = success
+    ? res.creditWei != null
+      ? Number(res.creditWei) / 1e18
+      : payoutGenExact(level, risk.multiplierX100, eff.x100)
+    : 0;
   return {
     level,
     success,
@@ -322,7 +327,7 @@ async function completeLevelOnChain(
     payoutGen,
     risk,
     reasoning: timedOut
-      ? `⏳ StudioNet validators are congested. Transaction may finalize later — nothing was charged and ${city} was not marked conquered. Try again shortly, or keep playing in demo mode.`
+      ? `⏳ StudioNet validators are congested. Transaction may finalize later - nothing was charged and ${city} was not marked conquered. Try again shortly, or keep playing in demo mode.`
       : errorMessage
         ? `${errorMessage} Nothing was charged and ${city} was not marked conquered.`
         : success
@@ -336,13 +341,16 @@ async function completeLevelOnChain(
     efficiencyX100: eff.x100,
     onChain: true,
     txHash: res.txHash,
+    payoutStatus: res.payoutStatus,
+    payoutTxHash: res.payoutTxHash,
+    creditGen: res.creditWei != null ? Number(res.creditWei) / 1e18 : undefined,
   };
 }
 
 export const MAX_LEVEL = LEVEL_BASE_GEN.length - 1;
 
 // ============================================================================
-// Marketplace quest API (UNCHANGED) — the original single-quest demo flow.
+// Marketplace quest API (UNCHANGED) - the original single-quest demo flow.
 // Kept intact so the existing dashboard modules and the untouched
 // submit_action contract path continue to work exactly as before.
 // ============================================================================
@@ -398,7 +406,7 @@ export async function submitAction(quest: Quest, action: string): Promise<Action
   if (risk.risk_tier === "Extreme") {
     success = cautious && !reckless;
     reasoning = success
-      ? `You chose "${action}" in ${w.condition.toLowerCase()} (${risk.multiplier}x). A well-adapted action for extreme conditions — the AI judged it survivable.`
+      ? `You chose "${action}" in ${w.condition.toLowerCase()} (${risk.multiplier}x). A well-adapted action for extreme conditions - the AI judged it survivable.`
       : `You chose "${action}" in ${w.condition.toLowerCase()} (${risk.multiplier}x). This is extremely dangerous and the AI judged it likely to fail.`;
   } else if (risk.risk_tier === "High") {
     success = !reckless || cautious;
@@ -429,11 +437,6 @@ export { genToAtto, attoToGen };
 
 function fakeTxHash(): string {
   return `0x${Math.random().toString(16).slice(2).padEnd(64, "0").slice(0, 64)}`;
-}
-
-/** Round to 4 decimals (GEN display precision) without float drift artifacts. */
-function round4(n: number): number {
-  return Math.round(n * 10000) / 10000;
 }
 
 function delay(ms: number) {

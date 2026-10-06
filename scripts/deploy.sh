@@ -2,7 +2,7 @@
 #
 # Deploy WeatherQuest to GenLayer StudioNet.
 #
-# StudioNet is GASLESS — you do NOT need GEN to deploy. (Note: funding quest
+# StudioNet is GASLESS - you do NOT need GEN to deploy. (Note: funding quest
 # escrow via `create_quest`/`deposit` still needs GEN in the account balance,
 # but deployment itself is free.)
 #

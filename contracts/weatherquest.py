@@ -586,6 +586,13 @@ class WeatherQuest(gl.Contract):
 	# per-city preview cache
 	city_multiplier: TreeMap[str, u256]
 
+	# Internal credit ledger: StudioNet cannot deliver native GEN to EOAs
+	# (emit_transfer to EOA fails "Contract not found"). Instead the contract
+	# tracks what each address is owed; funds remain in the house until the
+	# platform supports EthSend or a bridge withdraws to an IC.
+	credits: TreeMap[str, u256]
+	total_credits_atto: u256
+
 	# analytics indexes
 	completed_count: u256
 	failed_count: u256
@@ -603,6 +610,7 @@ class WeatherQuest(gl.Contract):
 		self.completed_count = u256(0)
 		self.failed_count = u256(0)
 		self.total_payout_atto = u256(0)
+		self.total_credits_atto = u256(0)
 		self.levels_completed = u256(0)
 		self.campaign_payout_atto = u256(0)
 
@@ -739,15 +747,16 @@ class WeatherQuest(gl.Contract):
 		if res["success"]:
 			if self.balance < payout:
 				raise gl.vm.UserError(f"{ERROR_EXPECTED} Contract balance insufficient for payout")
-			gl.get_contract_at(sender).emit_transfer(value=payout, on="finalized")
+			self._credit(sender, payout)
 			self.status_of[quest_id] = STATUS_COMPLETED
 			self.completed_count = self.completed_count + 1
 			self.total_payout_atto = self.total_payout_atto + payout
 			result["payout"] = int(payout)
 		else:
 			refund = self.base_reward_atto_of[quest_id]
+			creator_addr = str(self.creator_of[quest_id])
 			if self.balance >= refund:
-				gl.get_contract_at(self.creator_of[quest_id]).emit_transfer(value=refund, on="finalized")
+				self._credit(creator_addr, refund)
 			self.status_of[quest_id] = STATUS_FAILED
 			self.failed_count = self.failed_count + 1
 			result["payout"] = 0
@@ -824,7 +833,7 @@ class WeatherQuest(gl.Contract):
 		if res["success"]:
 			if self.balance < payout:
 				raise gl.vm.UserError(f"{ERROR_EXPECTED} Contract balance insufficient for payout")
-			gl.get_contract_at(sender).emit_transfer(value=payout, on="finalized")
+			self._credit(sender, payout)
 			self.level_completed[key] = True
 			self.levels_completed = self.levels_completed + 1
 			self.campaign_payout_atto = self.campaign_payout_atto + payout
@@ -898,7 +907,7 @@ class WeatherQuest(gl.Contract):
 
 		base = self.base_reward_atto_of[quest_id]
 		if self.balance >= base:
-			gl.get_contract_at(self.creator_of[quest_id]).emit_transfer(value=base, on="finalized")
+			self._credit(str(self.creator_of[quest_id]), base)
 		self.status_of[quest_id] = STATUS_CLAIMED
 
 	# -- Read views ----------------------------------------------------------
@@ -922,6 +931,25 @@ class WeatherQuest(gl.Contract):
 	@gl.public.view
 	def contract_balance(self) -> u256:
 		return self.balance
+
+	@gl.public.view
+	def get_credit(self, account: Address) -> dict:
+		"""Return the pending GEN credit for an address (in atto)."""
+		key = str(account).lower()
+		owed = self.credits.get(key, u256(0))
+		return {"address": str(account), "credit_atto": int(owed)}
+
+	# -- Internal credit accounting -------------------------------------------
+	def _credit(self, addr: str, amount: u256) -> None:
+		"""Record a credit for an address. On StudioNet, native GEN cannot be
+		sent to EOAs via emit_transfer (the triggered tx fails "Contract not
+		found"). Instead the contract keeps the GEN in the house and tracks
+		what each player is owed. When the platform supports EthSend, a
+		withdraw method can deliver the funds."""
+		key = str(addr).lower()
+		current = self.credits.get(key, u256(0))
+		self.credits[key] = current + amount
+		self.total_credits_atto = self.total_credits_atto + amount
 
 	# -- Formatting helpers --------------------------------------------------
 	def _format_analysis(self, analysis) -> dict:

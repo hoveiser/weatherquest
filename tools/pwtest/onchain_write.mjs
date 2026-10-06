@@ -134,7 +134,39 @@ if (modal) {
   await page.screenshot({ path: DOCS + "ui-10-onchain-verdict.png", fullPage: true });
   if (verdict.passed) {
     verdict.tx_hash_shown = await page.locator("text=/tx/").first().textContent().catch(() => null);
-    await page.getByRole("button", { name: /Reward sent|Open the gate/ }).first().click().catch(() => {});
+
+    // ---- P2 settlement-proof assertions ----
+    const link = page.locator('[data-testid="tx-hash-link"]').first();
+    verdict.hash_link_exists = (await link.count()) > 0;
+    verdict.hash_href = await link.getAttribute("href").catch(() => null);
+    verdict.hash_title = await link.getAttribute("title").catch(() => null);
+    verdict.hash_target = await link.getAttribute("target").catch(() => null);
+    verdict.hash_rel = await link.getAttribute("rel").catch(() => null);
+    // href must carry the full 66-char hash and point at the explorer
+    const href = verdict.hash_href || "";
+    verdict.hash_href_is_explorer = href.startsWith("https://explorer-studio.genlayer.com/tx/0x");
+    verdict.hash_href_full66 = /0x[0-9a-fA-F]{64}$/.test(href);
+    verdict.link_newtab_secure = verdict.hash_target === "_blank" && /noopener/.test(verdict.hash_rel || "") && /noreferrer/.test(verdict.hash_rel || "");
+    // clicking opens the explorer in a new tab (target=_blank)
+    const [popup] = await Promise.all([
+      page.waitForEvent("popup", { timeout: 5000 }).catch(() => null),
+      link.click().catch(() => {}),
+    ]);
+    verdict.popup_url = popup ? popup.url() : null;
+    verdict.popup_is_explorer = !!(popup && popup.url().startsWith("https://explorer-studio.genlayer.com/tx/"));
+    if (popup) await popup.close().catch(() => {});
+
+    // payout status is shown separately and is NOT the old "reward sent" wording
+    const payout = page.locator('[data-testid="payout-status"]').first();
+    verdict.payout_status_text = await payout.textContent().catch(() => null);
+    verdict.payout_status_shown = !!(verdict.payout_status_text || "").match(/Payout:/);
+    verdict.no_reward_sent_wording = !!(verdict.payout_status_text || "") && !/reward sent/i.test(verdict.payout_status_text);
+    // cross-check the displayed hash equals a real submitted tx hash
+    const shownHash = (verdict.hash_title || "").toLowerCase();
+    verdict.hash_matches_submitted = submitted.some((s) => s.hash.toLowerCase() === shownHash);
+
+    await page.screenshot({ path: DOCS + "ui-12-settlement-proof.png", fullPage: true });
+    await page.getByRole("button", { name: /Open the gate/ }).first().click().catch(() => {});
     await page.waitForTimeout(600);
     verdict.gate_unlocked = await page.locator("text=Gate Unlocked").first().isVisible().catch(() => false);
     await page.screenshot({ path: DOCS + "ui-11-onchain-unlocked.png", fullPage: true });
@@ -147,7 +179,7 @@ report.signer_address = ADDR;
 // Independent network verification of the submitted hash(es).
 for (const s of submitted) {
   const receipt = await wgRpc("eth_getTransactionReceipt", [s.hash]).catch((e) => ({ err: String(e).slice(0, 80) }));
-  const progress = await wgRpc("gen_call", [{ to: "0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72", from: ADDR, data: "0x", block_number: "latest" }]).catch(() => null);
+  const progress = await wgRpc("gen_call", [{ to: "0x2d764187A908d1677510c5E7FE69e8e7C1810299", from: ADDR, data: "0x", block_number: "latest" }]).catch(() => null);
   s.receipt = receipt;
 }
 await ctx.close();

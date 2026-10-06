@@ -42,14 +42,19 @@ jobs:
         # VITE_ONCHAIN would make the marketplace create/submit flows throw (they have
         # no funded escrow). A public address is safe to commit here.
         #
-        # This is the campaign-payout contract redeployed with the validator-consensus
-        # fix: the weather multiplier is now deterministic integer math (no LLM on the
-        # payout path), levels 2-10 read a fixed coordinate table (byte-identical fetch
-        # URLs), only ONE LLM call remains (action judgment), and validators compare
-        # tier/multiplier/success EXACTLY. It keeps CAMPAIGN_REWARD_SCALE=100 and the
-        # capped 1.20x Perfect efficiency tier, and is funded with 2 GEN on StudioNet.
+        # This is the campaign-payout contract redeployed with the credit-accounting
+        # fix. StudioNet cannot deliver native GEN to a player EOA: every
+        # emit_transfer payout produced a triggered tx that failed "Contract not
+        # found" while the house balance decreased. complete_level now records the
+        # exact payout in an on-chain per-address credit ledger (get_credit) and
+        # leaves the house balance intact; a future EthSend-capable runner or a
+        # bridge withdraws the credit to the wallet. The weather multiplier stays
+        # deterministic integer math, levels 2-10 read a fixed coordinate table,
+        # only ONE LLM call remains (action judgment), and validators compare
+        # tier/multiplier/success EXACTLY. Funded with 30 GEN on StudioNet (covers
+        # every campaign level up to the L10 max of 6 GEN).
         env:
-          VITE_CONTRACT_ADDRESS: "0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72"
+          VITE_CONTRACT_ADDRESS: "0x2d764187A908d1677510c5E7FE69e8e7C1810299"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
