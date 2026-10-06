@@ -76,3 +76,15 @@ one LLM call, and enforcing EXACT validator consensus on payout values.
 - Step E: build + publish the live site (GitHub Actions Pages bakes the new
   `VITE_CONTRACT_ADDRESS`). Requires merge/push to `main` -> public publish; confirm with user first.
 - Step F: README/SUBMISSION already updated for the redeploy + 125 tests; final pass pending.
+
+## Step E: live site (DONE)
+- Merged fix commit `519ba98` fast-forward into `main` and pushed to origin (user-approved public publish).
+- GitHub Actions both succeeded on the push: CI (lint + 125 direct tests + frontend build) and
+  "Deploy frontend to GitHub Pages".
+- Live URL https://hoveiser.github.io/weatherquest/ serves HTTP 200; the production bundle
+  `assets/index-IGK0c39o.js` contains the NEW address and NOT the old one (verified by fetch).
+
+## Step F: docs (DONE)
+- README §10 and SUBMISSION Contract Link rewritten for the validator-consensus redeploy,
+  new address, deploy/on-chain evidence, 125-test count, and Perfect 1.20x cap. Preview-heuristic
+  divergence documented honestly.
