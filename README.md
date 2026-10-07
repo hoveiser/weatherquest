@@ -339,16 +339,16 @@ the player EOA, and the relevance gate rejects gibberish while keeping the singl
 exact validator consensus.
 
 **Live-UI proof (`tools/pwtest/onchain_write.mjs`, evidence `docs/ui-onchain-report.json`).** The
-same production bundle the Pages workflow publishes is served and driven end-to-end by Playwright
-with a freshly generated throwaway wallet (private key never printed or stored) whose
-`eth_sendTransaction` is relayed to StudioNet. Level 1, sensible action, Low weather:
-`Quest Passed` after 47 s, settlement tx
-`0x6cc91e1796b1aac84b1cd90ff3c49d553cb453a306bbaa07036cb1306fce7af3`, the payout line read
+published GitHub Pages bundle (https://hoveiser.github.io/weatherquest/) is driven end-to-end by
+Playwright with a freshly generated throwaway wallet (private key never printed or stored) whose
+`eth_sendTransaction` is relayed to StudioNet. Level 1, sensible action, Low weather: wallet
+`0xAeD87Dd89527F26DD8C288e32572067f92FD550D`, `Quest Passed`, settlement tx
+`0x954f07a8f2311a2372d32f461de085c871c0e282ef923c3867e3b3e853462556`, the payout line read
 `"Payout: 0.1200 GEN received in your wallet"`, and an independent node-side
 `eth_getBalance` on the throwaway address moved **0 -> 0.12 GEN (delta exactly the payout)**.
 The UI's balance-confirmation logic only reports `sent` after that native delta, so the displayed
-text and the measured wallet balance agree. 0 console errors. This is the delivery proof through
-the connected live UI, not just the SDK harness.
+text and the measured wallet balance agree. 0 console errors. This is the delivery proof through the
+connected LIVE UI, not just the SDK harness.
 
 ### 12b. Credit-ledger stopgap round (superseded contract `0x2d764187...`)
 
