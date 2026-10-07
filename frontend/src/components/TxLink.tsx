@@ -1,10 +1,10 @@
 // Settlement proof links for the on-chain verdict.
 //
-// StudioNet cannot deliver native GEN to a player EOA, so the payout status is
-// reported separately from the verdict and NEVER claims "reward sent" unless a
-// triggered transfer tx actually succeeded. Both hashes render as full
-// explorer links (shortened for layout only) with the full hash in the href and
-// title, plus a Copy button.
+// The contract sends GEN natively (emit_transfer) and the UI confirms it against
+// the wallet's real balance delta, so the payout status is reported separately
+// from the verdict and NEVER claims "reward sent" unless the GEN actually
+// landed. Both hashes render as full explorer links (shortened for layout only)
+// with the full hash in the href and title, plus a Copy button.
 import { useState } from "react";
 import { explorerTxUrl, type PayoutStatus } from "../lib/genlayer";
 
@@ -61,15 +61,17 @@ export function HashLink({ hash, label, testId }: HashLinkProps) {
 export function payoutStatusText(status?: PayoutStatus, creditGen?: number): string {
   switch (status) {
     case "sent":
-      return "Payout: sent to wallet";
+      return creditGen != null && creditGen > 0
+        ? `Payout: ${creditGen.toFixed(4)} GEN received in your wallet`
+        : "Payout: sent to wallet (native GEN received)";
     case "failed":
       return "Payout: failed (transfer tx did not settle)";
     case "pending":
       return "Payout: pending (transfer tx not finalized yet)";
     case "credit":
       return creditGen != null && creditGen > 0
-        ? `Payout: ${creditGen.toFixed(4)} GEN credited on-chain (StudioNet cannot send native GEN to the wallet)`
-        : "Payout: recorded on-chain as claimable credit";
+        ? `Payout: ${creditGen.toFixed(4)} GEN recorded on-chain (native transfer awaiting confirmation)`
+        : "Payout: recorded on-chain, awaiting native transfer";
     case "none":
     default:
       return "Payout: none";

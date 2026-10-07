@@ -228,9 +228,9 @@ export async function readCampaignProgress(address: string, contract: string): P
 
 /**
  * get_credit(account) - the on-chain payout ledger for an address, in atto.
- * StudioNet cannot move native GEN to a player EOA, so the contract records each
- * payout here instead of transferring it; the house keeps the GEN. This view is
- * non-consensus and safe for the UI to trust.
+ * The contract also sends the GEN natively (emit_transfer); this ledger is a
+ * per-account mirror of cumulative payouts the UI can cross-check against. This
+ * view is non-consensus and safe for the UI to trust.
  */
 export async function readGetCredit(address: string, contract: string): Promise<bigint> {
   const raw = await withChainRetry(async () => {
@@ -268,10 +268,10 @@ function classifyWriteError(err: unknown): string {
 /** Payout delivery state, reported separately from the verdict. */
 export type PayoutStatus =
   | "none" // verdict did not pay (fail judgment)
-  | "credit" // payout recorded as on-chain credit (StudioNet cannot send native GEN)
+  | "credit" // payout recorded on-chain; native delivery not yet confirmed
   | "pending" // a triggered transfer tx exists and has not resolved
-  | "sent" // a triggered transfer tx succeeded (native wallet credit)
-  | "failed"; // a triggered transfer tx failed
+  | "sent" // the wallet's native GEN balance increased by the payout
+  | "failed"; // the triggered transfer tx failed
 
 export interface CompleteLevelResult {
   txHash: string;
@@ -322,6 +322,15 @@ export async function writeCompleteLevel(
   };
 
   let txHash = "";
+  // Snapshot the wallet's native GEN balance before the write so the UI can PROVE
+  // the payout actually landed (balance delta), instead of trusting a triggered
+  // transfer whose StudioNet consensus is only cosmetic.
+  let balanceBeforeWei: bigint | undefined;
+  try {
+    balanceBeforeWei = (await readGenBalance(address)).wei;
+  } catch {
+    balanceBeforeWei = undefined;
+  }
   try {
     // Issue 5: auto-retry after switching network if the send hit a chain mismatch.
     // A wallet rejection (code 4001) here is caught below and mapped to a message.
@@ -366,10 +375,10 @@ export async function writeCompleteLevel(
       return { txHash, completed: false, timedOut: false, payoutStatus: "none" };
     }
 
-    // The verdict settled as PASSED. Resolve the payout state separately. The
-    // credit-accounting contract records the payout in get_credit and emits no
-    // transfer; if a future runner emits a triggered transfer, surface its real
-    // status instead of claiming the wallet was credited.
+    // The verdict settled as PASSED. The contract sends GEN natively via
+    // emit_transfer AND records the payout in get_credit. Confirm delivery
+    // against the wallet's real native balance delta so the UI never claims
+    // "sent" unless GEN actually landed.
     let creditWei: bigint | undefined;
     try {
       creditWei = await readGetCredit(address, contract);
@@ -387,8 +396,29 @@ export async function writeCompleteLevel(
         payoutStatus = await resolveTriggeredStatus(client, payoutTxHash);
       }
     } catch {
-      // triggered lookup unsupported: fall back to the honest credit state
+      // triggered lookup unsupported: fall back to the credit-ledger state
       payoutStatus = "credit";
+    }
+
+    // Prove native delivery: poll the wallet balance briefly and mark "sent" only
+    // when it actually increased. If the triggered tx looked sent but the balance
+    // never moved, downgrade to "pending" (honest, not a false claim).
+    if (balanceBeforeWei != null) {
+      let balanceAfterWei = balanceBeforeWei;
+      for (let i = 0; i < 6; i++) {
+        try {
+          balanceAfterWei = (await readGenBalance(address)).wei;
+        } catch {
+          /* balance read failed; keep last known */
+        }
+        if (balanceAfterWei > balanceBeforeWei) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      if (balanceAfterWei > balanceBeforeWei) {
+        payoutStatus = "sent";
+      } else if (payoutStatus === "sent") {
+        payoutStatus = "pending";
+      }
     }
 
     return { txHash, completed, timedOut: false, payoutStatus, payoutTxHash, creditWei };

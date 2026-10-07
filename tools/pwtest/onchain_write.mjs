@@ -7,14 +7,19 @@ import { chromium } from "playwright";
 import fs from "node:fs";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
-const SITE_URL = "https://hoveiser.github.io/weatherquest/";
+// Where to run: defaults to the live GitHub Pages bundle, overridable with
+// SITE_URL so the same harness can prove a freshly built local bundle (vite
+// preview on :4173) against the real StudioNet contract.
+const SITE_URL = process.env.SITE_URL || "https://hoveiser.github.io/weatherquest/";
 const STUDIO_RPC = "https://studio.genlayer.com/api";
+// The deployed contract to independently read native balances against.
+const CONTRACT_ADDR = process.env.WQ_CONTRACT || "0x599EA254e19f7427Db0B158123ED1A21f28538fe";
 const DOCS = new URL("../../docs/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 fs.mkdirSync(DOCS, { recursive: true });
 
-const report = { console_errors: [], steps: {} };
+const report = { console_errors: [], site_url: SITE_URL, steps: {} };
 const pk = generatePrivateKey();
-const account = privateKeyToAccount(pk); // throwaway signer
+const account = privateKeyToAccount(pk); // throwaway signer (key never printed)
 const ADDR = account.address;
 
 async function wgRpc(method, params) {
@@ -48,6 +53,14 @@ async function wgSendTx(tx) {
   submitted.push({ hash, at: Date.now() });
   return hash;
 }
+
+// Independent native GEN read straight from the node (not via the UI), so the
+// balance delta is a network fact the report can stand on.
+async function nativeWei(addr) {
+  const hex = await wgRpc("eth_getBalance", [addr, "latest"]);
+  return BigInt(hex);
+}
+const genOf = (wei) => Number(wei) / 1e18;
 
 function providerInit() {
   return `
@@ -136,10 +149,16 @@ if (modal) {
   report.steps.preview_multiplier_text = await page.getByText(/\d\.\dx/).first().textContent().catch(() => null);
   report.steps.preview_tier_text = await page.getByText(/^(Low|Medium|High|Extreme)$/).first().textContent().catch(() => null);
   await page.screenshot({ path: DOCS + "ui-13-gate-preview.png", fullPage: true });
+  // Snapshot the throwaway wallet's NATIVE GEN balance straight from the node
+  // right before the write, so the payout delta is measured independently.
+  const balBeforeWei = await nativeWei(ADDR).catch(() => 0n);
+  report.steps.native_before_gen = genOf(balBeforeWei);
   const t0 = Date.now();
   await page.getByRole("button", { name: "Submit" }).click();
-  // observe which terminal state the UI reaches (do NOT assume)
-  for (let i = 0; i < 70; i++) {
+  // observe which terminal state the UI reaches (do NOT assume). The on-chain
+  // path now waits for consensus + a native-balance confirmation poll, so allow
+  // up to ~150s before calling it stuck.
+  for (let i = 0; i < 150; i++) {
     await page.waitForTimeout(1000);
     verdict.passed = await page.locator("text=Quest Passed").first().isVisible().catch(() => false);
     verdict.congested = await page.locator("text=Validators congested").first().isVisible().catch(() => false);
@@ -178,6 +197,30 @@ if (modal) {
     verdict.payout_status_text = await payout.textContent().catch(() => null);
     verdict.payout_status_shown = !!(verdict.payout_status_text || "").match(/Payout:/);
     verdict.no_reward_sent_wording = !!(verdict.payout_status_text || "") && !/reward sent/i.test(verdict.payout_status_text);
+
+    // ---- native GEN delivery proof (the corrected claim) ----
+    // StudioNet applies the emit_transfer on FINALIZED, which can lag the verdict
+    // by a few seconds. Poll the wallet's NATIVE balance straight from the node.
+    let balAfterWei = balBeforeWei;
+    for (let i = 0; i < 10; i++) {
+      balAfterWei = await nativeWei(ADDR).catch(() => balAfterWei);
+      if (balAfterWei > balBeforeWei) break;
+      await page.waitForTimeout(4000);
+    }
+    const deltaWei = balAfterWei - balBeforeWei;
+    verdict.native_before_gen = genOf(balBeforeWei);
+    verdict.native_after_gen = genOf(balAfterWei);
+    verdict.native_delta_gen = genOf(deltaWei);
+    verdict.native_delta_positive = deltaWei > 0n;
+    // The UI's own payout line carries the credited GEN; parse it and require the
+    // measured native delta to match what the app claims the wallet received.
+    const shown = ((verdict.payout_status_text || "").match(/([\d.]+)\s*GEN/) || [])[1];
+    verdict.payout_shown_gen = shown ? parseFloat(shown) : null;
+    verdict.payout_says_received = /received in your wallet/i.test(verdict.payout_status_text || "");
+    verdict.native_delta_matches_shown =
+      verdict.payout_shown_gen != null &&
+      Math.abs(verdict.native_delta_gen - verdict.payout_shown_gen) < 1e-9;
+
     // cross-check the displayed hash equals a real submitted tx hash
     const shownHash = (verdict.hash_title || "").toLowerCase();
     verdict.hash_matches_submitted = submitted.some((s) => s.hash.toLowerCase() === shownHash);
@@ -198,9 +241,10 @@ report.signer_address = ADDR;
 // Independent network verification of the submitted hash(es).
 for (const s of submitted) {
   const receipt = await wgRpc("eth_getTransactionReceipt", [s.hash]).catch((e) => ({ err: String(e).slice(0, 80) }));
-  const progress = await wgRpc("gen_call", [{ to: "0x2d764187A908d1677510c5E7FE69e8e7C1810299", from: ADDR, data: "0x", block_number: "latest" }]).catch(() => null);
   s.receipt = receipt;
 }
+report.contract_address = CONTRACT_ADDR;
+report.wallet_final_native_gen = genOf(await nativeWei(ADDR).catch(() => 0n));
 await ctx.close();
 await browser.close();
 

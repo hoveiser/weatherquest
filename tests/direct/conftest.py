@@ -97,11 +97,12 @@ def mock_forecast_only(direct_vm, current=None):
     )
 
 
-def mock_llm_judgment(direct_vm, success=True, why="fine"):
-    """Mock the ONE remaining LLM call: the tier-keyed action judgment."""
+def mock_llm_judgment(direct_vm, success=True, why="fine", relevant=True):
+    """Mock the ONE remaining LLM call: the tier-keyed action judgment that now
+    also returns a `relevant` flag (gibberish / off-topic => relevant=False)."""
     direct_vm.mock_llm(
         r".*Return strict JSON.*",
-        json.dumps({"success": success, "why": why}),
+        json.dumps({"relevant": relevant, "success": success, "why": why}),
     )
 
 

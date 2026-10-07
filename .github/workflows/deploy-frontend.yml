@@ -42,19 +42,20 @@ jobs:
         # VITE_ONCHAIN would make the marketplace create/submit flows throw (they have
         # no funded escrow). A public address is safe to commit here.
         #
-        # This is the campaign-payout contract redeployed with the credit-accounting
-        # fix. StudioNet cannot deliver native GEN to a player EOA: every
-        # emit_transfer payout produced a triggered tx that failed "Contract not
-        # found" while the house balance decreased. complete_level now records the
-        # exact payout in an on-chain per-address credit ledger (get_credit) and
-        # leaves the house balance intact; a future EthSend-capable runner or a
-        # bridge withdraws the credit to the wallet. The weather multiplier stays
-        # deterministic integer math, levels 2-10 read a fixed coordinate table,
-        # only ONE LLM call remains (action judgment), and validators compare
-        # tier/multiplier/success EXACTLY. Funded with 30 GEN on StudioNet (covers
-        # every campaign level up to the L10 max of 6 GEN).
+        # This is the campaign-payout contract redeployed with native GEN payouts.
+        # Payouts reach the player's wallet as real native GEN via a
+        # @gl.evm.contract_interface emit_transfer (the earlier
+        # gl.get_contract_at(eoa) pattern silently no-oped against EOAs), and
+        # complete_level also mirrors each payout in an on-chain per-address credit
+        # ledger (get_credit). Verified on StudioNet: a passing complete_level moved
+        # the wallet's native balance by exactly the payout (docs/final_verify.json).
+        # The action judgment now also gates on relevance, so gibberish / off-topic
+        # text is rejected even on a Low tier (single LLM call, exact consensus
+        # preserved). The weather multiplier stays deterministic integer math, levels
+        # 2-10 read a fixed coordinate table, and validators compare
+        # tier/multiplier/success EXACTLY. Funded with 30+ GEN on StudioNet.
         env:
-          VITE_CONTRACT_ADDRESS: "0x2d764187A908d1677510c5E7FE69e8e7C1810299"
+          VITE_CONTRACT_ADDRESS: "0x599EA254e19f7427Db0B158123ED1A21f28538fe"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

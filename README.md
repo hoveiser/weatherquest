@@ -248,34 +248,34 @@ because image-generation/Pillow were unavailable in the build sandbox.
 
 ## 10. Deployment
 
-- **Contract -> GenLayer StudioNet: DEPLOYED (credit-accounting redeploy).**
-  ### `0x2d764187A908d1677510c5E7FE69e8e7C1810299`
-  (deploy tx `0xcb2a7df0…87eda0`, `FINALIZED` / `SUCCESS`). This redeploy fixes the payout
-  bug on the previous contract: StudioNet cannot move native GEN to a player EOA, so every
-  `emit_transfer` payout produced a triggered tx that failed `Contract not found` while the
-  house balance decreased and the player received nothing. `complete_level` and
-  `submit_action` now record the exact payout in an on-chain per-address credit ledger
-  (`get_credit(address)` returns the owed atto), and the house balance stays intact. When the
-  platform supports `EthSend` (or a bridge runs), the accrued credit is withdrawable to the
-  wallet. No GEN is burned or lost in the meantime.
-  The validator-consensus design from the prior redeploy is retained: the weather multiplier
-  and risk tier are deterministic integer math (no LLM touches the payout-determining value),
-  levels 2-10 read a fixed integer coordinate table so every validator requests a byte-identical
-  forecast URL (geocoding skipped), only ONE LLM call remains (the open-ended action judgment,
-  with prompt-injection wrapping), and validators compare tier/multiplier/success EXACTLY (no
-  tolerance). It keeps `CAMPAIGN_REWARD_SCALE=100` (base reward L1..L10 = 0.1..1.0 GEN), the
-  progressive-campaign methods, and caps the Perfect efficiency bonus at 1.20x. The house is
-  funded with 30 GEN (covers every level up to the L10 max of 6 GEN). See §12 for the full
-  on-chain verification round.
-  Previous deployment: `0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72` (the
-  validator-consensus redeploy whose `emit_transfer` payouts failed on StudioNet).
-  Redeploy from source
-  with the SDK scripts in `scripts/` (`wq_check.py`, `wq_deploy.py`, `wq_onchain.py`); `scripts/deploy.sh`
-  is the `genlayer` CLI path. Studio explorer: https://studio.genlayer.com.
+- **Contract -> GenLayer StudioNet: DEPLOYED (native GEN payout redeploy).**
+  ### `0x599EA254e19f7427Db0B158123ED1A21f28538fe`
+  (deploy tx `0x623a915b…e361f9`, `FINALIZED` / `SUCCESS`). Payouts now reach the player's
+  wallet as real native GEN. The earlier `gl.get_contract_at(eoa).emit_transfer(...)` path
+  produced an internal IC->IC message that silently no-oped against EOAs (the "Contract not
+  found" failures); this redeploy sends native value through a `@gl.evm.contract_interface`
+  `emit_transfer`, the same pattern the sibling devbounty contract uses. Verified on
+  StudioNet: a passing `complete_level` moved a throwaway wallet's native balance by exactly
+  the payout (0.12 GEN), the house decreased by the same amount, and `get_credit(address)`
+  mirrors the payout as a per-address ledger entry. The action judgment now also gates on
+  relevance, so gibberish or off-topic text is rejected even on a Low tier with no second LLM
+  call. The validator-consensus design is retained: the weather multiplier and risk tier are
+  deterministic integer math (no LLM touches the payout-determining value), levels 2-10 read a
+  fixed integer coordinate table so every validator requests a byte-identical forecast URL
+  (geocoding skipped), only ONE LLM call remains (the action judgment, with prompt-injection
+  wrapping), and validators compare tier/multiplier/success EXACTLY (no tolerance). It keeps
+  `CAMPAIGN_REWARD_SCALE=100` (base reward L1..L10 = 0.1..1.0 GEN), the progressive-campaign
+  methods, and caps the Perfect efficiency bonus at 1.20x. The house is funded with 30+ GEN.
+  See §12 for the full on-chain verification round.
+  Previous deployments: `0x2d764187A908d1677510c5E7FE69e8e7C1810299` (credit-ledger stopgap),
+  `0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72` (validator-consensus redeploy whose
+  `get_contract_at` payouts no-oped). Redeploy from source with the SDK scripts in `scripts/`
+  (`wq_check.py`, `wq_deploy.py`, `wq_final_verify.py`); `scripts/deploy.sh` is the `genlayer`
+  CLI path. Studio explorer: https://studio.genlayer.com.
 - **Frontend -> GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow. Live at https://hoveiser.github.io/weatherquest/ (verified with Playwright + chromium).
 
-To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x2d764187A908d1677510c5E7FE69e8e7C1810299`
+To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x599EA254e19f7427Db0B158123ED1A21f28538fe`
 and `VITE_ONCHAIN=true` in `frontend/.env` (see §6). For the campaign path the Pages build bakes only
 `VITE_CONTRACT_ADDRESS` (see `.github/workflows/deploy-frontend.yml`); `VITE_ONCHAIN` is intentionally left
 off so the marketplace flows don't attempt unfunded on-chain escrow.
@@ -302,26 +302,59 @@ See `SUBMISSION.md` for the fill-in submission fields and the verification outco
   and GEN for a given weather snapshot match the contract. A live-site screenshot confirming the
   Istanbul preview equals the on-chain payout for the same run is captured under `docs/` after the
   Pages deploy (P5).
-- **StudioNet does not credit recipient EOA native balances for the campaign payout.** On the
-  previous deployment `complete_level` used `emit_transfer(on="finalized")`, which runs as a separate
-  triggered transaction; on StudioNet every one of those triggered transfers failed `Contract not
-  found` (observed 0/14, evidence `docs/p1_triggered_txs.json`), so the house was debited and the
-  player received nothing. A minimal four-pattern test (`contracts/transfer_test.py`,
-  `docs/p1_transfer_test_results.json`) showed that neither `gl.get_contract_at(eoa).emit_transfer()`
-  nor `@gl.evm.contract_interface` can move native GEN to an EOA on this runner (the latter is
-  rejected by validators with `exit_code 1`). The current contract therefore records each payout as
-  an on-chain per-address **credit** (`get_credit(address)`) and leaves the house balance intact, so
-  no GEN is burned or lost; when the platform supports `EthSend` the credit is withdrawable. Native
-  GEN delivery to a wallet has NOT been verified on any testnet, so the UI reports the on-chain
-  verdict and the pending credit (never "reward sent") and shows the full explorer link for the
-  settlement transaction.
+- **StudioNet DOES credit recipient EOA native balances for the campaign payout.** An earlier
+  conclusion that it could not was WRONG and is corrected here: the blocker was the API, not
+  the network. `gl.get_contract_at(eoa).emit_transfer(...)` sends an internal IC->IC message
+  that silently no-ops against addresses without an Intelligent Contract (the "Contract not
+  found" triggered txs, `docs/p1_triggered_txs.json`). The working pattern is a
+  `@gl.evm.contract_interface` recipient declaration plus `emit_transfer(value=...)` with a
+  plain hex address, exactly what the sibling devbounty contract uses. Verified on StudioNet
+  on the final contract (deploy `0x623a915b…e361f9`): three passing `complete_level` runs each
+  moved a throwaway wallet's native balance by exactly 0.12 GEN (delta == payout ==
+  `get_credit`), the house decreased by the same amount, and three gibberish actions were
+  rejected with 0 delta (evidence `docs/final_verify.json`). The credit ledger is kept as a
+  per-address mirror for read queries. The UI confirms delivery against the wallet's real
+  native balance delta and only then reports the payout as received.
 - The game canvas, confetti, and count-up run on `requestAnimationFrame` and therefore pause when the
   browser tab is backgrounded (standard for canvas games); everything resumes on focus.
 
-## 12. On-chain verification round (real StudioNet, final contract)
+## 12. On-chain verification rounds (real StudioNet)
+
+### 12a. Native-payout + relevance round (current final contract `0x599EA254...`)
+
+Run by `scripts/wq_final_verify.py` against the current final contract
+`0x599EA254e19f7427Db0B158123ED1A21f28538fe` (deploy tx `0x623a915b1d4d612691eae3674d051b29ca7104f59db53ae8d5bb11897be361f9`,
+funded 30 GEN via tx `0x37ca040eb2cc360f88cf27e345be029be8a0cf8d9330ca7237c05f6621783936`). Full
+per-case records with tx hashes: `docs/final_verify.json`.
+
+- 3 gibberish actions on level-1 Istanbul: each `MAJORITY_AGREE` / `exec=SUCCESS`, 1 consensus
+  round, **0 triggered transfers, native balance delta 0, credit 0** -> rejected by the relevance
+  gate even where the tier's guidance is lenient.
+- 3 sensible actions on level-1 Istanbul: each `MAJORITY_AGREE` / `exec=SUCCESS`, 1 consensus
+  round, **1 triggered transfer, wallet native balance delta = credit = 0.12 GEN exactly**, and
+  the house decreased by the same 0.12 GEN per run.
+
+This round proves the two things the earlier credit round could not: native GEN actually reaches
+the player EOA, and the relevance gate rejects gibberish while keeping the single LLM call and
+exact validator consensus.
+
+**Live-UI proof (`tools/pwtest/onchain_write.mjs`, evidence `docs/ui-onchain-report.json`).** The
+same production bundle the Pages workflow publishes is served and driven end-to-end by Playwright
+with a freshly generated throwaway wallet (private key never printed or stored) whose
+`eth_sendTransaction` is relayed to StudioNet. Level 1, sensible action, Low weather:
+`Quest Passed` after 47 s, settlement tx
+`0x6cc91e1796b1aac84b1cd90ff3c49d553cb453a306bbaa07036cb1306fce7af3`, the payout line read
+`"Payout: 0.1200 GEN received in your wallet"`, and an independent node-side
+`eth_getBalance` on the throwaway address moved **0 -> 0.12 GEN (delta exactly the payout)**.
+The UI's balance-confirmation logic only reports `sent` after that native delta, so the displayed
+text and the measured wallet balance agree. 0 console errors. This is the delivery proof through
+the connected live UI, not just the SDK harness.
+
+### 12b. Credit-ledger stopgap round (superseded contract `0x2d764187...`)
 
 All numbers below come from one sequential harness (`scripts/wq_round.py`) run against the
-final StudioNet contract `0x2d764187A908d1677510c5E7FE69e8e7C1810299`. Every result is appended to
+previous stopgap contract `0x2d764187A908d1677510c5E7FE69e8e7C1810299`, whose payouts were
+recorded only as an on-chain credit (no native transfer). Every result is appended to
 `docs/round_results.json` and the raw `get_transaction` dump for every tx is in
 `docs/round_raw/`. Consensus is judged by the SDK's `result_name` + `last_round` votes + the
 recorded per-validator vote set, not by the `tx_execution_result_name` field (which is null on
@@ -331,9 +364,9 @@ reached MAJORITY_AGREE, i.e. no rotation happened).
 
 **Funding the house.** `deposit()` of 30 GEN from the deployer (tx
 `0xef9bbe5b49d3b391cb0a6725b11ca45738b28cb65fb21819c1596ae4b1806590`) reached `FINALIZED` /
-`MAJORITY_AGREE` and raised `contract_balance` from 0 to 30.0 GEN. Because the current contract
-records payouts as an on-chain per-address credit (see §11) rather than a native `emit_transfer`,
-the house balance stays at 30.0 GEN across the whole round below. That is far above the
+`MAJORITY_AGREE` and raised `contract_balance` from 0 to 30.0 GEN. Because that stopgap contract recorded payouts as an on-chain per-address credit (see §11) rather than a native `emit_transfer`,
+the house balance stayed at 30.0 GEN across the whole round below (on the current
+`0x599EA254...` contract a passing run debits the house by the native payout instead). That was far above the
 `base * 6` max-payout pre-check in the contract (level 10 base is 1.0 GEN, multiplier 1.0..5.0, so
 any single run caps at 6.0 GEN).
 
