@@ -57,8 +57,11 @@ export const LEVEL_BASE_GEN: readonly number[] = [0, 10, 12, 15, 20, 25, 30, 35,
 // Mirrors contracts/weatherquest.py CAMPAIGN_REWARD_SCALE.
 export const CAMPAIGN_REWARD_SCALE = 100;
 
-// Progressively harder global cities for levels 2+ (Level 1 = the player's IP city).
+// Fixed campaign city per level (mirrors CAMPAIGN_CITY_TABLE in the contract). The
+// caller cannot pick a stormier city: complete_level requires this exact city for
+// its level. Level 1 is Istanbul (no longer the player's IP-detected city).
 export const CAMPAIGN_CITIES: Readonly<Record<number, string>> = {
+  1: "Istanbul",
   2: "Tokyo",
   3: "Sydney",
   4: "Reykjavik",
@@ -85,20 +88,21 @@ export function baseRewardGen(level: number): number {
 
 /**
  * Exact GEN payout preview using the SAME integer atto math as the contract:
- *   payout_atto = base_atto * multiplier_x100 * efficiency_x100 / 10000
- * where base_atto = LEVEL_BASE_GEN[level] * 1e18 / CAMPAIGN_REWARD_SCALE.
- * BigInt division truncates toward zero exactly like Python's `//`, so the
- * previewed GEN equals the on-chain credit for the same tier + efficiency
- * (no float drift, no rounding surprises).
+ *   payout_atto = base_atto * multiplier_x100 / 100
+ * where base_atto = LEVEL_BASE_GEN[level] * 1e18 / CAMPAIGN_REWARD_SCALE. There is
+ * NO efficiency/step term (the contract reward is base * weather only). BigInt
+ * division truncates toward zero exactly like Python's `//`, so the previewed GEN
+ * equals the on-chain credit for the same weather tier (no float drift).
  */
-export function payoutGenExact(level: number, multiplierX100: number, efficiencyX100: number): number {
+export function payoutGenExact(level: number, multiplierX100: number): number {
   const baseAtto = BigInt(LEVEL_BASE_GEN[level] ?? 0) * 10n ** 18n / BigInt(CAMPAIGN_REWARD_SCALE);
-  const payoutAtto = (baseAtto * BigInt(Math.round(multiplierX100)) * BigInt(Math.round(efficiencyX100))) / 10000n;
+  const payoutAtto = (baseAtto * BigInt(Math.round(multiplierX100))) / 100n;
   return Number(payoutAtto) / 1e18;
 }
 
 export function cityForLevel(level: number, homeCity: string): string {
-  if (level <= 1) return homeCity;
+  // Every level 1-10 is bound to a fixed campaign city (the contract enforces it);
+  // homeCity is only a fallback if a level is somehow not in the table.
   return CAMPAIGN_CITIES[level] ?? homeCity;
 }
 
@@ -118,8 +122,8 @@ const WALKABLE = new Set([".", "G", "V"]);
 /**
  * BFS shortest path (4-neighbor, orthogonal moves = "steps") from the spawn cell
  * to the nearest Magic Gate tile. Returns the number of steps, or null if the
- * gate is unreachable. This is the canonical `optimal_steps` used both by the
- * complexity rule and by the reward calculation.
+ * gate is unreachable. Used only by the map complexity rule and the cosmetic step
+ * display; it is NOT part of the payout (the contract reward ignores step counts).
  */
 export function shortestPathToGate(map: string[]): number | null {
   const R = map.length;
@@ -303,8 +307,8 @@ function buildTutorial(): string[] {
 /**
  * Build the tile map for a campaign level (1..MAX_LEVEL), regenerating until the
  * BFS shortest-path complexity rule is satisfied. Deterministic for a given
- * level, so `generateMap(level)` and `computeOptimalSteps(level)` always agree
- * and the value handed to the contract matches the map actually rendered.
+ * so `generateMap(level)` and `computeOptimalSteps(level)` always agree and the
+ * cosmetic step display matches the map actually rendered.
  */
 export function generateMap(level = 1): string[] {
   if (level <= 1) return buildTutorial();
@@ -327,7 +331,7 @@ export function generateMap(level = 1): string[] {
   return best ?? buildMaze(level, (0x9e3779b9 ^ Math.imul(level, 0x85ebca6b)) >>> 0);
 }
 
-/** The canonical optimal-step count for a level (matches the rendered map). */
+/** The optimal-step count for a level (cosmetic display only; matches the map). */
 export function computeOptimalSteps(level: number): number {
   return shortestPathToGate(generateMap(level)) ?? minPathSteps(level);
 }

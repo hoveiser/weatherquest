@@ -15,7 +15,8 @@ interface Props {
   risk: RiskAnalysis | null;
   /** Live grid-cell transitions the player has made this level. */
   steps?: number;
-  /** BFS shortest spawn→gate length (optimal_steps) for the current map. */
+  /** Cosmetic BFS shortest spawn->gate length for the current map. Shown for
+   *  flavor only; it is NOT sent to the contract and does NOT affect the payout. */
   optimalSteps?: number;
 }
 
@@ -98,7 +99,7 @@ export default function HUD({
             </div>
             {optimalSteps != null && (
               <div className="mt-0.5 font-mono text-[10px] text-muted">
-                🚶 {steps ?? 0} steps · optimal {optimalSteps}
+                🚶 {steps ?? 0} steps · optimal {optimalSteps} (cosmetic, not rewarded)
               </div>
             )}
           </div>

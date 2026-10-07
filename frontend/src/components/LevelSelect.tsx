@@ -27,9 +27,10 @@ const BAND_ICON: Record<DifficultyBand, string> = {
 };
 
 /**
- * The campaign hub: levels 1-10, each themed to a progressively harder world
- * city (Level 1 = the player's IP-detected home city). Conquered levels show a
- * green "Already Conquered ✅" badge; the recommended next level is highlighted.
+ * The campaign hub: levels 1-10, each bound to a fixed campaign city from
+ * CAMPAIGN_CITIES (Level 1 is always Istanbul, never the detected location).
+ * Conquered levels show a green "Already Conquered ✅" badge; the recommended
+ * next level is highlighted.
  */
 export default function LevelSelect({ homeCity, completed, nextLevel, onPlay }: Props) {
   const levels = Array.from({ length: MAX_LEVEL }, (_, i) => i + 1);
@@ -45,7 +46,7 @@ export default function LevelSelect({ homeCity, completed, nextLevel, onPlay }: 
           </p>
         </div>
         <div className="text-right text-xs text-muted">
-          <div>Home city (Level 1)</div>
+          <div>Detected location (cosmetic)</div>
           <div className="font-semibold text-ink">{homeCity}</div>
         </div>
       </div>

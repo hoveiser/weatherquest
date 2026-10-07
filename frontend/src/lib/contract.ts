@@ -1,7 +1,6 @@
 import type {
   ActionResult,
   CampaignProgress,
-  EfficiencyTier,
   LevelOutcome,
   Quest,
   RiskAnalysis,
@@ -153,35 +152,15 @@ export interface CompleteLevelInput {
   homeCity: string;
   action: string;
   wallet: WalletState;
-  /** BFS shortest spawn→gate length for the rendered map (>= 1). */
-  optimalSteps: number;
-  /** Grid-cell transitions the player made before reaching the gate (>= 1). */
-  actualSteps: number;
-}
-
-/**
- * Demo mirror of the contract's _efficiency_multiplier: identical integer tiers so
- * the offline preview and the on-chain settlement always agree. Returns the tier
- * and its hundredths multiplier (120 / 100 / 50 / 10).
- */
-export function efficiencyTier(optimalSteps: number, actualSteps: number): { tier: EfficiencyTier; x100: number } {
-  const opt = Math.max(1, Math.trunc(optimalSteps) || 1);
-  const act = Math.max(1, Math.trunc(actualSteps) || 1);
-  if (act <= opt + 2) return { tier: "Perfect", x100: 120 };
-  if (act * 2 <= opt * 3) return { tier: "Good", x100: 100 }; // act <= optimal * 1.5, no floats
-  if (act <= opt * 3) return { tier: "Wandering", x100: 50 };
-  return { tier: "Lost", x100: 10 };
 }
 
 export async function completeLevel(input: CompleteLevelInput): Promise<LevelOutcome> {
   const city = cityForLevel(input.level, input.homeCity);
   const difficulty = difficultyBand(input.level);
-  const optimal = Math.max(1, Math.trunc(input.optimalSteps) || 1);
-  const actual = Math.max(1, Math.trunc(input.actualSteps) || 1);
   if (input.wallet.mode === "onchain" && CONTRACT) {
-    return completeLevelOnChain(input.level, city, input.action, difficulty, input.wallet, optimal, actual);
+    return completeLevelOnChain(input.level, city, input.action, difficulty, input.wallet);
   }
-  return completeLevelDemo(input.level, city, input.action, difficulty, input.wallet, optimal, actual);
+  return completeLevelDemo(input.level, city, input.action, difficulty, input.wallet);
 }
 
 /** Live weather + preview multiplier for a city (never throws; returns calm fallback). */
@@ -206,10 +185,7 @@ async function completeLevelDemo(
   action: string,
   difficulty: ReturnType<typeof difficultyBand>,
   _wallet: WalletState,
-  optimal: number,
-  actual: number,
 ): Promise<LevelOutcome> {
-  const eff = efficiencyTier(optimal, actual);
   const done = loadDemoProgress();
   if (done.includes(level)) {
     const { risk } = await previewFor(city);
@@ -221,10 +197,6 @@ async function completeLevelDemo(
       reasoning: `Level ${level} (${city}) is already conquered - the gate stands open. Walk on through.`,
       difficulty,
       city,
-      optimalSteps: optimal,
-      actualSteps: actual,
-      efficiency: eff.tier,
-      efficiencyX100: eff.x100,
       alreadyCompleted: true,
       onChain: false,
     };
@@ -267,8 +239,8 @@ async function completeLevelDemo(
       : `Extreme risk (${mult}x): "${action}" exposes you to dangerous weather. Take shelter instead.`;
   }
 
-  // Exact integer mirror of the contract payout: base * multiplier * efficiency / 10000.
-  const payoutGen = success ? payoutGenExact(level, risk.multiplierX100, eff.x100) : 0;
+  // Exact integer mirror of the contract payout: base * multiplier / 100.
+  const payoutGen = success ? payoutGenExact(level, risk.multiplierX100) : 0;
   if (success) {
     done.push(level);
     saveDemoProgress(done);
@@ -282,10 +254,6 @@ async function completeLevelDemo(
     reasoning: verdict,
     difficulty,
     city,
-    optimalSteps: optimal,
-    actualSteps: actual,
-    efficiency: eff.tier,
-    efficiencyX100: eff.x100,
     onChain: false,
     txHash: fakeTxHash(),
   };
@@ -297,14 +265,11 @@ async function completeLevelOnChain(
   action: string,
   difficulty: ReturnType<typeof difficultyBand>,
   wallet: WalletState,
-  optimal: number,
-  actual: number,
 ): Promise<LevelOutcome> {
   // The UI preview is non-authoritative; the contract re-derives the real multiplier
-  // and applies the identical efficiency tier on-chain.
+  // and settles base * weather only (no step/efficiency term).
   const { risk } = await previewFor(city);
-  const eff = efficiencyTier(optimal, actual);
-  const res = await gl.writeCompleteLevel(wallet.address, CONTRACT, level, city, action, optimal, actual);
+  const res = await gl.writeCompleteLevel(wallet.address, CONTRACT, level, city, action);
   // A 60s consensus timeout is StudioNet congestion ("may finalize later"), NOT an AI fail.
   const timedOut = res.timedOut;
   // A specific failure (wallet rejection / contract revert / insufficient funds / network
@@ -317,7 +282,7 @@ async function completeLevelOnChain(
   const payoutGen = success
     ? res.creditWei != null
       ? Number(res.creditWei) / 1e18
-      : payoutGenExact(level, risk.multiplierX100, eff.x100)
+      : payoutGenExact(level, risk.multiplierX100)
     : 0;
   return {
     level,
@@ -335,10 +300,6 @@ async function completeLevelOnChain(
           : `On-chain: the AI judgment failed Level ${level} (${city}). Try a safer action and resubmit.`,
     difficulty,
     city,
-    optimalSteps: optimal,
-    actualSteps: actual,
-    efficiency: eff.tier,
-    efficiencyX100: eff.x100,
     onChain: true,
     txHash: res.txHash,
     payoutStatus: res.payoutStatus,

@@ -137,7 +137,7 @@ export default function App() {
 
   const passedRef = useRef(false);
   const outcomeRef = useRef<LevelOutcome | null>(null);
-  const stepsRef = useRef(0); // actual_steps captured when the gate is reached
+  const stepsRef = useRef(0); // step count captured when the gate is reached (cosmetic)
   const completedRef = useRef<number[]>([]);
   completedRef.current = completed;
   const walletModeRef = useRef(wallet.mode);
@@ -226,8 +226,8 @@ export default function App() {
     setPhase("menu");
   }, []);
 
-  // Player touched the closed gate → pause, capture the step count, open the AI
-  // challenge. `s` is the number of cells entered en route (actual_steps).
+  // Player touched the closed gate -> pause, capture the step count, open the AI
+  // challenge. `s` is the number of cells entered en route (cosmetic only).
   const handleGate = useCallback((s: number) => {
     if (gateOpen) return;
     passedRef.current = false;
@@ -239,8 +239,8 @@ export default function App() {
     setPaused(true);
   }, [gateOpen]);
 
-  // Run the (demo/on-chain) judgment for this campaign level, scoring navigation
-  // efficiency from the BFS optimal path vs. the steps the player actually took.
+  // Run the (demo/on-chain) judgment for this campaign level. The reward is base *
+  // weather only; the live step counter is a purely cosmetic stat and is NOT sent.
   const handleSubmit = useCallback(
     async (action: string): Promise<LevelOutcome> => {
       ensureAudio();
@@ -249,8 +249,6 @@ export default function App() {
         homeCity,
         action,
         wallet,
-        optimalSteps: computeOptimalSteps(currentLevel),
-        actualSteps: Math.max(1, stepsRef.current),
       });
       outcomeRef.current = outcome;
       return outcome;
@@ -331,7 +329,7 @@ export default function App() {
 
   // Dev-only seams so the AI-gate modal, victory->advance, and level jumps can be
   // exercised directly without pixel-perfect canvas walking. __wgOpenGate takes a
-  // synthetic step count so efficiency can be forced. Vite replaces
+  // synthetic step count for the cosmetic counter. Vite replaces
   // `import.meta.env.DEV` with `false` in production, so these are stripped from
   // the built bundle and never reachable by reviewers on GitHub Pages.
   useEffect(() => {

@@ -13,7 +13,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 const SITE_URL = process.env.SITE_URL || "https://hoveiser.github.io/weatherquest/";
 const STUDIO_RPC = "https://studio.genlayer.com/api";
 // The deployed contract to independently read native balances against.
-const CONTRACT_ADDR = process.env.WQ_CONTRACT || "0x599EA254e19f7427Db0B158123ED1A21f28538fe";
+const CONTRACT_ADDR = process.env.WQ_CONTRACT || "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3";
 const DOCS = new URL("../../docs/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 fs.mkdirSync(DOCS, { recursive: true });
 

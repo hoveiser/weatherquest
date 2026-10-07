@@ -86,9 +86,6 @@ export interface GenBalance {
   gen: number;
 }
 
-/** Navigation-efficiency tier, mirroring contracts/weatherquest.py _efficiency_multiplier. */
-export type EfficiencyTier = "Perfect" | "Good" | "Wandering" | "Lost";
-
 /** Result of attempting a campaign level (demo or on-chain settlement). */
 export interface LevelOutcome {
   level: number;
@@ -98,14 +95,6 @@ export interface LevelOutcome {
   reasoning: string;
   difficulty: DifficultyBand;
   city: string;
-  /** BFS shortest spawn→gate length for the rendered map. */
-  optimalSteps: number;
-  /** Grid-cell transitions the player actually made before reaching the gate. */
-  actualSteps: number;
-  /** Efficiency tier derived from the two step counts (same rule as the contract). */
-  efficiency: EfficiencyTier;
-  /** Efficiency multiplier in hundredths: 120 / 100 / 50 / 10. */
-  efficiencyX100: number;
   /** True once the level was settled by the on-chain contract (real GEN transfer);
    *  false in demo mode (local, simulated). Drives honest settlement copy in the UI. */
   onChain?: boolean;

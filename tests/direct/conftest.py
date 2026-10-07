@@ -7,9 +7,26 @@ the contract itself from the mocked `current` block, so the presets below pin th
 exact integer snapshot the contract's _risk_from_snapshot consumes.
 """
 import json
+import os
 import sys
 
 GEN = 10**18
+
+# Windows-only local shim. The GenLayer direct loader does
+# os.dup2(fd, 0); os.close(fd); os.unlink(path) but fd 0 still references the temp
+# file on Windows, so os.unlink raises PermissionError [WinError 32]. This wrapper
+# only tolerates that on win32 so the local suite can run; CI on Linux exercises the
+# real loader unchanged and is the authority. Never touches contract logic.
+if sys.platform == "win32":
+    _real_unlink = os.unlink
+
+    def _tolerant_unlink(path, *args, **kwargs):
+        try:
+            return _real_unlink(path, *args, **kwargs)
+        except PermissionError:
+            return None
+
+    os.unlink = _tolerant_unlink
 
 
 def hex_addr(account):
@@ -75,7 +92,8 @@ STORM = {
 
 
 def mock_weather(direct_vm, current=None):
-    """Wire up geocoding + forecast for a free-form city (Level 1 / preview path)."""
+    """Wire up geocoding + forecast for a free-form city. Only the non-payout
+    preview helper get_weather_multiplier (level 0) uses the geocode path now."""
     current = current or CALM
     direct_vm.mock_web(
         r"geocoding-api\.open-meteo\.com.*",
@@ -88,7 +106,7 @@ def mock_weather(direct_vm, current=None):
 
 
 def mock_forecast_only(direct_vm, current=None):
-    """Table levels (2-10) skip geocoding and fetch the forecast directly, so only
+    """Campaign levels (1-10) skip geocoding and fetch the forecast directly, so only
     the forecast URL needs mocking; the geocode mock is harmless if left unused."""
     current = current or CALM
     direct_vm.mock_web(
@@ -125,9 +143,6 @@ def deploy(direct_deploy, direct_vm, direct_alice, house=1000):
     return contract
 
 
-def make_quest(direct_vm, direct_alice, contract, city="London", gen=10, hours=24):
-    direct_vm.sender = direct_alice
-    direct_vm.value = gen * GEN
-    qid = contract.create_quest(city, gen * GEN, "test quest", hours)
-    direct_vm.value = 0
-    return qid
+# NOTE: make_quest was removed. The quest-marketplace escrow (create_quest) is
+# DISABLED on this deployment and reverts unconditionally, so no quest can be
+# created and submit_action / claim_expired_quest are unreachable.

@@ -197,6 +197,7 @@ def test_fmt_coord_e5(v, expected):
 # Reference decimal degrees for each campaign city. A typo like Singapore at
 # 1352088 (13.5 deg) instead of 135208 (1.35 deg) is caught by the 1e-4 tolerance.
 CITY_REFERENCE = {
+    1: ("Istanbul", 41.01384, 28.94966),
     2: ("Tokyo", 35.6895, 139.69171),
     3: ("Sydney", -33.86788, 151.20731),
     4: ("Reykjavik", 64.13548, -21.89540),
@@ -218,8 +219,10 @@ def test_campaign_table_matches_reference(level):
     assert abs(tlon / 100000.0 - lon_ref) < 0.0001
 
 
-def test_campaign_table_keys_are_2_to_10():
-    assert sorted(WQ.CAMPAIGN_CITY_TABLE) == [2, 3, 4, 5, 6, 7, 8, 9, 10]
+def test_campaign_table_keys_are_1_to_10():
+    # Level 1 is now a fixed table city (Istanbul), so every campaign level 1-10
+    # is bound to the table and the free-form geocode path is gone from complete_level.
+    assert sorted(WQ.CAMPAIGN_CITY_TABLE) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 
 # --- URL encoding of free-form cities ----------------------------------------
@@ -399,26 +402,21 @@ def test_validate_submission_rejects_non_dict_leader():
     assert _with_submission(mine, go) is False
 
 
-# --- _efficiency_multiplier tiers + bounds -----------------------------------
-@pytest.mark.parametrize("opt,act,tier,x100", [
-    (20, 20, "Perfect", 120), (20, 22, "Perfect", 120),
-    (20, 23, "Good", 100), (20, 30, "Good", 100),
-    (10, 25, "Wandering", 50), (10, 30, "Wandering", 50),
-    (10, 31, "Lost", 10), (10, 100, "Lost", 10),
-])
-def test_efficiency_tiers(opt, act, tier, x100):
-    x, name, oi, ai = WQ._efficiency_multiplier(opt, act)
-    assert (name, x) == (tier, x100)
-    assert (oi, ai) == (opt, act)
+# --- reward path has NO caller-controlled navigation counts (reviewer test c) --
+# Static guarantee on the SOURCE: the payout path must never reference step counts
+# or an efficiency term. complete_level's signature is the only reward entry point,
+# so pin its argument list and scan the whole file for the removed identifiers.
+def test_contract_source_has_no_efficiency_in_reward_path():
+    src = _CONTRACT.read_text(encoding="utf-8")
+    for banned in ("optimal_steps", "actual_steps", "efficiency", "_efficiency_multiplier"):
+        assert banned not in src, f"reward path still references {banned!r}"
+    # EFF_* constants and STEP bounds were the efficiency scaffolding; all gone.
+    assert "EFF_" not in src
+    assert "STEP_MIN" not in src and "STEP_MAX" not in src
 
 
-@pytest.mark.parametrize("opt,act,msg", [
-    (0, 10, "optimal_steps must be 1..500"),
-    (501, 502, "optimal_steps must be 1..500"),
-    (30, 10, "actual_steps must be >= optimal_steps"),
-    (10, 600, "actual_steps must be <= 500"),
-])
-def test_efficiency_bounds_revert(opt, act, msg):
-    with pytest.raises(USERERR) as ei:
-        WQ._efficiency_multiplier(opt, act)
-    assert msg in str(ei.value)
+def test_complete_level_signature_has_no_step_arguments():
+    import inspect
+    params = list(inspect.signature(WQ.WeatherQuest.complete_level).parameters)
+    # self, level, city, action only - no room for caller-supplied step counts.
+    assert params == ["self", "level", "city", "action"]

@@ -293,13 +293,14 @@ export interface CompleteLevelResult {
 }
 
 /**
- * complete_level(level, city, action, optimal_steps, actual_steps) - gasless on
- * StudioNet (value 0). The two step counts drive the on-chain efficiency
- * multiplier. Waits for consensus (capped at 60s) and then re-reads progress to
- * confirm settlement. On a chain-mismatch send error, switches to StudioNet and
- * retries once. Failures never throw: a wallet rejection, contract revert,
- * insufficient funds, or network error is mapped to a specific `errorMessage`,
- * while a 60s consensus timeout is reported via `timedOut` (NOT as a fail).
+ * complete_level(level, city, action) - gasless on StudioNet (value 0). The payout
+ * is base(level) * the consensus weather multiplier only; there is NO caller-
+ * supplied step/efficiency term. Waits for consensus (capped at 60s) and then
+ * re-reads progress to confirm settlement. On a chain-mismatch send error, switches
+ * to StudioNet and retries once. Failures never throw: a wallet rejection, contract
+ * revert, insufficient funds, or network error is mapped to a specific
+ * `errorMessage`, while a 60s consensus timeout is reported via `timedOut` (NOT as
+ * a fail).
  */
 export async function writeCompleteLevel(
   address: string,
@@ -307,15 +308,13 @@ export async function writeCompleteLevel(
   level: number,
   city: string,
   action: string,
-  optimalSteps: number,
-  actualSteps: number,
 ): Promise<CompleteLevelResult> {
   const submit = async () => {
     const client = await makeClient(address);
     const hash = await client.writeContract({
       address: contract as `0x${string}`,
       functionName: "complete_level",
-      args: [BigInt(level), city, action, BigInt(Math.max(1, optimalSteps)), BigInt(Math.max(1, actualSteps))],
+      args: [BigInt(level), city, action],
       value: 0n,
     });
     return { client, hash };

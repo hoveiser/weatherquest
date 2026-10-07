@@ -19,10 +19,11 @@ retries. This rewrite fixes the root cause:
    integer arithmetic from a normalized snapshot (_snap_from_snapshot ->
    _risk_from_snapshot). No LLM touches the payout-determining multiplier, so
    every validator derives the identical value from the identical URL.
-2. Byte-identical inputs: campaign levels 2-10 skip geocoding entirely and read
-   a fixed integer coordinate table (CAMPAIGN_CITY_TABLE, units of 1e-5 deg), so
-   the forecast URL is character-for-character identical across validators. Free-
-   form cities (Level 1, get_weather_multiplier) are URL-encoded from the same
+2. Byte-identical inputs: every campaign level (1-10) skips geocoding entirely and
+   reads a fixed integer coordinate table (CAMPAIGN_CITY_TABLE, units of 1e-5 deg),
+   so the forecast URL is character-for-character identical across validators. The
+   caller must name the exact table city for its level. Only the non-payout preview
+   helper (get_weather_multiplier) takes a free-form city, URL-encoded from the same
    source string.
 3. ONE LLM call: only the open-ended action judgment still uses the LLM, keyed
    on the weather tier, with a minimal one-phrase output and prompt-injection
@@ -66,13 +67,17 @@ DESC_MAX = 500
 MULT_MIN = 100                   # 1.00x, stored as hundredths (integer)
 MULT_MAX = 500                   # 5.00x
 
-# --- Campaign city table (levels 2-10) --------------------------------------
-# Integer latitude/longitude in units of 1e-5 degrees (no floats). Levels 2-10
-# read the forecast straight from these coordinates, skipping geocoding, so every
-# validator requests a byte-identical URL. The city strings MUST match
-# frontend/src/lib/maps.ts CAMPAIGN_CITIES byte for byte (Level 1 = the free-form
-# player IP city, so it is intentionally absent here).
+# --- Campaign city table (levels 1-10) --------------------------------------
+# Integer latitude/longitude in units of 1e-5 degrees (no floats). Every campaign
+# level reads the forecast straight from these coordinates, skipping geocoding, so
+# every validator requests a byte-identical URL and the caller cannot substitute a
+# stormier free-form city to inflate the multiplier. The city strings MUST match
+# frontend/src/lib/maps.ts CAMPAIGN_CITIES byte for byte.
 CAMPAIGN_CITY_TABLE = {
+	# Istanbul coords are the Open-Meteo geocoder first result for "Istanbul"
+	# (lat 41.01384, lon 28.94966, id 745044), so the campaign level 1 forecast URL
+	# is byte-identical to what get_weather_multiplier("Istanbul") fetches free-form.
+	1: ("Istanbul", 4101384, 2894966),
 	2: ("Tokyo", 3568950, 13969171),
 	3: ("Sydney", -3386788, 15120731),
 	4: ("Reykjavik", 6413548, -2189540),
@@ -84,22 +89,6 @@ CAMPAIGN_CITY_TABLE = {
 	10: ("Troms\u00f8", 6965800, 1896230),
 }
 
-# --- Efficiency-based reward tiers (navigation skill) -----------------------
-# The frontend computes `optimal_steps` (BFS shortest spawn->gate when the map is
-# generated) and tracks `actual_steps` (cells the player entered). The contract
-# scales the weather-settled payout by an efficiency multiplier. All integer math
-# (hundredths), no floats, so every validator derives the identical tier. The step
-# counts are CLIENT-SUPPLIED and cannot be verified on-chain, so the Perfect bonus
-# is capped at 1.20x (was 1.50x): over-claiming navigation skill is now bounded.
-EFF_PERFECT_X100 = 120           # actual <= optimal + 2      -> 1.2x (speed bonus)
-EFF_GOOD_X100 = 100              # actual <= optimal * 1.5    -> 1.0x (normal)
-EFF_WANDER_X100 = 50             # actual <= optimal * 3.0    -> 0.5x (penalty)
-EFF_LOST_X100 = 10               # otherwise                  -> 0.1x (near-zero)
-
-# Client-supplied step-count bounds, validated deterministically before consensus.
-STEP_MIN = 1
-STEP_MAX = 500
-
 # --- Progressive campaign (single-player RPG levels) ------------------------
 MAX_LEVEL = 10
 # Base GEN reward per campaign level (index = level; slot 0 unused). Easy levels
@@ -109,7 +98,7 @@ MAX_LEVEL = 10
 LEVEL_BASE_GEN = (0, 10, 12, 15, 20, 25, 30, 35, 50, 75, 100)
 # Prize scale divisor. The table above is in whole GEN for readability, but the
 # (testnet) house is small, so every campaign payout is divided by this on-chain.
-# Ratios + weather/efficiency multipliers are UNCHANGED - only the absolute GEN
+# Ratios + weather multiplier are UNCHANGED - only the absolute GEN
 # size shrinks. 100 => a full L1..L10 run drains ~3.7 GEN instead of ~370.
 CAMPAIGN_REWARD_SCALE = 100
 
@@ -335,37 +324,6 @@ def _level_difficulty(level):
 	return "Hard"
 
 
-def _efficiency_multiplier(optimal_steps, actual_steps):
-	"""Deterministic efficiency tier from step counts (integer math, no floats).
-
-	Returns (efficiency_x100, tier_name, optimal_i, actual_i). `optimal_steps` is
-	the BFS shortest spawn->gate length the frontend derived for this exact map.
-
-	SECURITY NOTE: `actual_steps >= optimal_steps` is NOT a security check. Both
-	step counts are supplied by the client and cannot be verified on-chain, so a
-	player can always claim the Perfect tier (now bounded at 1.20x). The bounds
-	below only keep the arithmetic sane and make bad inputs revert identically.
-	"""
-	try:
-		opt = int(optimal_steps)
-		act = int(actual_steps)
-	except (ValueError, TypeError):
-		raise gl.vm.UserError(f"{ERROR_EXPECTED} step counts must be integers")
-	if opt < STEP_MIN or opt > STEP_MAX:
-		raise gl.vm.UserError(f"{ERROR_EXPECTED} optimal_steps must be {STEP_MIN}..{STEP_MAX}")
-	if act < opt:
-		raise gl.vm.UserError(f"{ERROR_EXPECTED} actual_steps must be >= optimal_steps")
-	if act > STEP_MAX:
-		raise gl.vm.UserError(f"{ERROR_EXPECTED} actual_steps must be <= {STEP_MAX}")
-	if act <= opt + 2:
-		return EFF_PERFECT_X100, "Perfect", opt, act
-	if act * 2 <= opt * 3:  # act <= optimal * 1.5 without float math
-		return EFF_GOOD_X100, "Good", opt, act
-	if act <= opt * 3:
-		return EFF_WANDER_X100, "Wandering", opt, act
-	return EFF_LOST_X100, "Lost", opt, act
-
-
 def _level_key(account, level):
 	"""Canonical hasCompletedLevel[wallet][level] key.
 
@@ -464,10 +422,11 @@ def _fetch_forecast_snapshot(lat_e5, lon_e5):
 
 
 def _resolve_weather(city, level=0):
-	"""Weather decision fields only (no action judgment). For campaign levels 2-10
+	"""Weather decision fields only (no action judgment). For campaign levels 1-10
 	read the fixed coordinate table and skip geocoding so the URL is byte-identical;
-	free-form cities (Level 1, get_weather_multiplier) geocode first. The multiplier
-	and tier are deterministic integer arithmetic, so no LLM and no tolerance."""
+	only the non-payout preview (get_weather_multiplier, level=0) geocodes a free-
+	form city. The multiplier and tier are deterministic integer arithmetic, so no
+	LLM and no tolerance."""
 	if level in CAMPAIGN_CITY_TABLE:
 		table_city, lat_e5, lon_e5 = CAMPAIGN_CITY_TABLE[level]
 		use_city = table_city
@@ -559,7 +518,7 @@ def _judge_action(summary, tier, action):
 def _resolve_submission(city, action, level=0):
 	"""Full leader/validator body: deterministic weather fields plus ONE LLM action
 	judgment, returned together so the validator can compare decision fields exactly.
-	`level` selects the fixed table path (2-10) or the free-form geocode path (0/1)."""
+	`level` selects the fixed table path (1-10) or the free-form geocode path (0)."""
 	base = _resolve_weather(city, level)
 	judgment = _judge_action(base["summary"], base["risk_tier"], action)
 	base["success"] = judgment["success"]
@@ -669,6 +628,15 @@ class WeatherQuest(gl.Contract):
 	# -- Quest lifecycle -----------------------------------------------------
 	@gl.public.write.payable
 	def create_quest(self, city: str, base_reward: u256, description: str, expiry_hours: u256) -> str:
+		# Marketplace escrow is DISABLED on this deployment. The live frontend never
+		# reaches this on-chain path (the create/submit actions run only a local demo
+		# mock and throw in on-chain mode), and a caller-locked escrow has no caller-
+		# driven withdrawal, so we reject it outright instead of risking trapped funds.
+		# submit_action / claim_expired_quest stay compiled but become unreachable
+		# because no quest can be created. The campaign complete_level path is unaffected.
+		raise gl.vm.UserError(
+			f"{ERROR_EXPECTED} Marketplace escrow is disabled on this deployment"
+		)
 		city_clean = "" if city is None else str(city).strip()
 		if len(city_clean) == 0:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} City must not be empty")
@@ -817,14 +785,15 @@ class WeatherQuest(gl.Contract):
 
 	# -- Progressive campaign ------------------------------------------------
 	@gl.public.write
-	def complete_level(self, level: u256, city: str, action: str, optimal_steps: u256, actual_steps: u256) -> dict:
+	def complete_level(self, level: u256, city: str, action: str) -> dict:
 		"""AI-gated campaign level. The caller's wallet address is the identity, so
-		each (wallet, level) can only be *completed* once; replay is rejected. Levels
-		2-10 must pass the exact campaign city (see CAMPAIGN_CITY_TABLE); Level 1 is
-		free-form (the player's real IP city). The weather multiplier is derived
+		each (wallet, level) can only be *completed* once; replay is rejected. Every
+		level 1-10 must pass the exact campaign city (see CAMPAIGN_CITY_TABLE), so no
+		caller-supplied value can inflate the payout. The weather multiplier is derived
 		deterministically and the AI judges `action`; on success the contract pays
-		base(level) * weather_multiplier * efficiency_multiplier GEN from the house and
-		marks the level done. `optimal_steps`/`actual_steps` reward navigation skill."""
+		base(level) * weather_multiplier GEN from the house and marks the level done.
+		Navigation step counts are a purely cosmetic client stat and are NOT part of
+		this signature or the reward calculation."""
 		lvl = _validate_level(level)
 
 		city_clean = "" if city is None else str(city).strip()
@@ -833,9 +802,9 @@ class WeatherQuest(gl.Contract):
 		if len(city_clean) > CITY_MAX:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} City too long (max {CITY_MAX})")
 
-		# Levels 2-10 MUST name the exact campaign city (case-insensitive). Level 1
-		# stays free-form (the player's IP city). This binds the on-chain payout to the
-		# fixed coordinate table and stops a player substituting a stormier free city.
+		# Every level 1-10 MUST name the exact campaign city (case-insensitive). This
+		# binds the on-chain payout to the fixed coordinate table and stops a player
+		# substituting a stormier free-form city to raise the multiplier.
 		if lvl in CAMPAIGN_CITY_TABLE:
 			table_city = CAMPAIGN_CITY_TABLE[lvl][0]
 			if city_clean.lower() != table_city.lower():
@@ -848,10 +817,6 @@ class WeatherQuest(gl.Contract):
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Action must not be empty")
 		if len(action_clean) > ACTION_MAX:
 			raise gl.vm.UserError(f"{ERROR_EXPECTED} Action too long (max {ACTION_MAX})")
-
-		# Deterministic efficiency gate (client-supplied navigation data). Validated
-		# up front so bad inputs revert identically for every validator.
-		eff_x100, eff_tier, opt_i, act_i = _efficiency_multiplier(optimal_steps, actual_steps)
 
 		sender = gl.message.sender_address
 		key = _level_key(sender, lvl)
@@ -869,8 +834,8 @@ class WeatherQuest(gl.Contract):
 		res = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
 		base = _level_base_atto(lvl)
-		# Final = base * weather(x100) * efficiency(x100) / 10000 (all integer).
-		payout = u256((int(base) * int(res["multiplier"]) * eff_x100) // 10000)
+		# Final = base * weather(x100) / 100 (all integer). No caller-supplied term.
+		payout = u256((int(base) * int(res["multiplier"])) // 100)
 		result = self._format_analysis(res)
 		result["success"] = bool(res["success"])
 		result["judgment_reasoning"] = res["judgment_reasoning"]
@@ -878,10 +843,6 @@ class WeatherQuest(gl.Contract):
 		result["difficulty"] = _level_difficulty(lvl)
 		result["base_reward_atto"] = int(base)
 		result["base_reward_gen"] = _fmt_atto(base)
-		result["optimal_steps"] = opt_i
-		result["actual_steps"] = act_i
-		result["efficiency"] = eff_tier
-		result["efficiency_x100"] = eff_x100
 
 		if res["success"]:
 			if self.balance < payout:

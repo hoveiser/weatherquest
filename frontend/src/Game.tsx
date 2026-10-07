@@ -75,7 +75,7 @@ export interface GameProps {
   /** Freeze player input (e.g. while the AI gate modal is open). */
   paused?: boolean;
   /** Fires once per approach when the player touches a *closed* gate, with the
-   *  number of grid cells entered so far (`actual_steps`). */
+   *  number of grid cells entered so far (a cosmetic step counter). */
   onGateReached?: (steps: number) => void;
   /** Fires once when the player walks into the victory zone (gate already open). */
   onVictoryReached?: () => void;
@@ -169,8 +169,8 @@ export default function Game({
         );
 
       // The player: a rounded neon rectangle. Spawn is aligned to maps.ts SPAWN_CELL
-      // (a guaranteed-carved maze room) so the BFS `optimal_steps` the host computes
-      // matches where the player actually starts.
+      // (a guaranteed-carved maze room) so the BFS optimal-path length the host shows
+      // in the cosmetic step counter matches where the player actually starts.
       const player = k.add([
         k.rect(PLAYER_HALF * 2, PLAYER_HALF * 2, { radius: 6 }),
         k.color(255, 159, 64),
@@ -181,10 +181,9 @@ export default function Game({
         "player",
       ]);
 
-      // Navigation-efficiency tracker. `steps` counts every grid-cell transition
-      // (including revisits), which is directly comparable to the BFS shortest-path
-      // length the contract scores against - wandering inflates it, a direct route
-      // does not. It is client-supplied navigation data, never consensus state.
+      // Cosmetic step counter. `steps` counts every grid-cell transition (including
+      // revisits). It is shown for flavor only, is never sent to the contract, and
+      // never affects the payout, which is base * weather multiplier only.
       let steps = 0;
       let lastCellC: number = SPAWN_CELL.c;
       let lastCellR: number = SPAWN_CELL.r;

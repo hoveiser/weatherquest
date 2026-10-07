@@ -104,10 +104,6 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
         reasoning: 'Network error. Please try again.',
         difficulty: 'Easy',
         city,
-        optimalSteps: 0,
-        actualSteps: 0,
-        efficiency: 'Good',
-        efficiencyX100: 100,
         onChain: true,
       };
     }
@@ -316,41 +312,6 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                         <>🎮 Demo - reward simulated locally. Connect a wallet to settle on-chain.</>
                       )}
                     </p>
-                    {/* ---- Navigation-efficiency breakdown ---- */}
-                    <div className="mt-3 rounded-card border border-white/10 bg-white/5 p-3">
-                      <p className="font-mono text-xs text-slate-200">
-                        You took {result.actualSteps} steps · optimal was {result.optimalSteps} · efficiency{' '}
-                        {Math.min(
-                          100,
-                          Math.round((result.optimalSteps / Math.max(1, result.actualSteps)) * 100),
-                        )}
-                        %
-                      </p>
-                      <p className="mt-1 font-mono text-[11px] text-slate-400">
-                        Efficiency ×{(result.efficiencyX100 / 100).toFixed(2)} ·{' '}
-                        <span
-                          className={
-                            result.efficiency === 'Perfect'
-                              ? 'text-success'
-                              : result.efficiency === 'Lost'
-                                ? 'text-danger'
-                                : 'text-secondary'
-                          }
-                        >
-                          {result.efficiency} run
-                        </span>
-                      </p>
-                      {result.efficiency === 'Lost' && (
-                        <p className="mt-2 rounded-card border border-danger/40 bg-danger/10 px-3 py-2 text-xs font-semibold text-danger">
-                          You got lost! The AI penalized your reward for inefficiency. 🗺️
-                        </p>
-                      )}
-                      {result.efficiency === 'Perfect' && (
-                        <p className="mt-2 text-xs font-semibold text-success">
-                          Flawless navigation - speed bonus applied! ⚡
-                        </p>
-                      )}
-                    </div>
                     <motion.button
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.97 }}

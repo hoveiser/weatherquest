@@ -7,7 +7,7 @@ each consensus round-trip is one explicit, observable action (rule 6).
   python scripts/wq_onchain.py bal          # contract GEN balance
   python scripts/wq_onchain.py deposit      # fund the house with 2 GEN (payable)
   python scripts/wq_onchain.py mult         # get_weather_multiplier("Tokyo")
-  python scripts/wq_onchain.py complete     # complete_level(2,"Tokyo",...)
+  python scripts/wq_onchain.py complete     # complete_level(2,"Tokyo",action)  [3-arg ABI]
 
 Write steps submit the tx, then poll get_transaction until it leaves PENDING,
 printing status_name + result_name (the consensus outcome we must prove).
@@ -23,9 +23,12 @@ load_dotenv(os.path.join(ROOT, ".env"))
 from eth_account import Account
 from genlayer_py import create_client, studionet
 
-ADDR = "0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72"
+ADDR = os.environ.get(
+    "WQ_CONTRACT_ADDRESS", "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
+)
 GEN = 10**18
-DEADLINE = 300  # 5 min per tx (rule 6)
+DEADLINE = 300  # 5 min per tx (rule 5)
+POLL = 20       # seconds between polls (rule 5)
 
 
 def client():
@@ -46,10 +49,10 @@ def wait_tx(c, tx_id, label):
         print("  %s status=%s result=%s" % (label, sn, rn))
         if sn in ("FINALIZED", "FAILED", "UNDETERMINED"):
             return sn, rn
-        if seen[sn] > 40:  # same state 40x (~4 min) => stop and report
+        if seen[sn] > 15:  # same state 15x (~5 min) => stop and report
             print("  STALLED in %s; stopping for manual review" % sn)
             return sn, rn
-        time.sleep(6)
+        time.sleep(POLL)
     print("  TIMEOUT waiting for %s" % label)
     return "TIMEOUT", None
 
@@ -85,8 +88,8 @@ def do_mult(c, acct):
 
 
 def do_complete(c, acct):
-    # Level 2 -> table city "Tokyo". Reckless-safe action so a pass is plausible.
-    args = [2, "Tokyo", "Set up a sturdy tent and wait out the wind", 10, 12]
+    # Level 2 -> fixed table city "Tokyo". 3-arg ABI: no caller step counts.
+    args = [2, "Tokyo", "Set up a sturdy tent and wait out the wind"]
     tx_id = c.write_contract(ADDR, "complete_level", args=args)
     sn, rn = wait_tx(c, tx_id, "complete_level(2,Tokyo)")
     print("complete_level consensus:", sn, rn)

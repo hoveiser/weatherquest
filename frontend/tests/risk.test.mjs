@@ -5,7 +5,8 @@
 // (CALM -> Low/100, WINDY -> Medium/160, STORM -> clamped 500/Extreme, plus each
 // integer band edge of wind / precip / temp / weather-code) against the pure
 // client port in src/lib/risk.ts, and check the GEN payout formula in
-// src/lib/maps.ts against the contract identity payout = base * mult * eff / 10000.
+// src/lib/maps.ts against the contract identity payout = base * mult / 100 (no
+// efficiency/step term).
 //
 // No test framework is added: the two pure TS modules are transpiled with the
 // already-installed TypeScript compiler, imported as ESM, and asserted with
@@ -147,23 +148,24 @@ test("tierFromScore / tierFor thresholds match the contract", () => {
   assert.equal(tierFor(4.0), "Extreme");
 });
 
-// --- GEN payout identity: base * mult * eff / 10000 (Perfect 1.20x) ---------
+// --- GEN payout identity: base * mult / 100 (no efficiency/step term) -------
 test("payoutGenExact matches the contract integer identity for key rows", () => {
-  // base_gen per level = LEVEL_BASE_GEN[lvl]/100; payout = base * (x100/100) * (eff/100).
+  // base_gen per level = LEVEL_BASE_GEN[lvl]/100; payout = base * (x100/100).
   const baseGen = (lvl) => LEVEL_BASE_GEN[lvl] / 100;
   const rows = [
-    [1, 100, 120], // the real P1 Istanbul run: 0.1 * 1.0 * 1.2 = 0.12 GEN
-    [1, 160, 100], // 0.1 * 1.6 = 0.16
-    [1, 100, 100], // 0.1
-    [5, 100, 120], // 0.25 * 1.2 = 0.30
-    [2, 120, 120], // 0.12 * 1.2 * 1.2 = 0.1728
-    [10, 500, 120], // 1.0 * 5.0 * 1.2 = 6.0 (max payout)
+    [1, 100], // 0.1 * 1.0 = 0.1 GEN
+    [1, 160], // 0.1 * 1.6 = 0.16
+    [1, 500], // 0.1 * 5.0 = 0.5
+    [5, 100], // 0.25 * 1.0 = 0.25
+    [2, 120], // 0.12 * 1.2 = 0.144
+    [10, 500], // 1.0 * 5.0 = 5.0 (max payout)
   ];
-  for (const [lvl, mult, eff] of rows) {
-    const expected = baseGen(lvl) * (mult / 100) * (eff / 100);
-    const got = payoutGenExact(lvl, mult, eff);
-    assert.ok(Math.abs(got - expected) < 1e-9, `L${lvl} x${mult} eff${eff}: ${got} vs ${expected}`);
+  for (const [lvl, mult] of rows) {
+    const expected = baseGen(lvl) * (mult / 100);
+    const got = payoutGenExact(lvl, mult);
+    assert.ok(Math.abs(got - expected) < 1e-9, `L${lvl} x${mult}: ${got} vs ${expected}`);
   }
-  assert.equal(payoutGenExact(1, 100, 120), 0.12);
-  assert.equal(payoutGenExact(10, 500, 120), 6);
+  // The old "Perfect run" 1.2x bonus is GONE: base weather only, no step term.
+  assert.equal(payoutGenExact(1, 100), 0.1); // was 0.12 with a 1.2x efficiency
+  assert.equal(payoutGenExact(10, 500), 5); // was 6.0 with a 1.2x efficiency
 });

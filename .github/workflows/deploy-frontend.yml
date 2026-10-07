@@ -51,11 +51,14 @@ jobs:
         # the wallet's native balance by exactly the payout (docs/final_verify.json).
         # The action judgment now also gates on relevance, so gibberish / off-topic
         # text is rejected even on a Low tier (single LLM call, exact consensus
-        # preserved). The weather multiplier stays deterministic integer math, levels
-        # 2-10 read a fixed coordinate table, and validators compare
-        # tier/multiplier/success EXACTLY. Funded with 30+ GEN on StudioNet.
+        # preserved). The weather multiplier stays deterministic integer math, ALL
+        # levels 1-10 (level 1 is Istanbul) read a fixed integer coordinate table so
+        # a caller cannot pick the stormiest city to boost the reward, and validators
+        # compare tier/multiplier/success EXACTLY. Caller-supplied navigation step
+        # counts were removed from the reward path entirely: there is no efficiency
+        # bonus, payout = base(level) * multiplier / 100. Funded with 30+ GEN.
         env:
-          VITE_CONTRACT_ADDRESS: "0x599EA254e19f7427Db0B158123ED1A21f28538fe"
+          VITE_CONTRACT_ADDRESS: "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
