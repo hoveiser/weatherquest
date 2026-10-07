@@ -270,3 +270,45 @@ uses the contract payout formula.
 ## Remaining
 - Commit, push to main, wait for CI + Pages green, re-check the live bundle address, then the P5
   live-UI Playwright pass against the deployed final-contract bundle.
+
+## P6 push + deploy (DONE)
+- Committed `81b76c7` and pushed to `main` (user declined the optional pre-push deep review).
+- GitHub Actions both green for `81b76c7`: "Deploy frontend to GitHub Pages" success, and
+  "CI - Regression Tests" (genvm-lint + 131 direct tests + frontend `npm test` + build) success.
+- Live bundle re-checked (`scripts/wq_live_bundle.py`): the served entry chunk
+  `assets/index-DvlQZpse.js` (HTTP 200) contains `0x2d764187A908d1677510c5E7FE69e8e7C1810299` and
+  NOT the old `0x8fc4bc48...`.
+
+---
+
+# Progress log: live UI + preview match (P5, and the P4 live check)
+
+Ran `tools/pwtest/onchain_write.mjs` (bundled Node + chromium) against the LIVE
+https://hoveiser.github.io/weatherquest/ with an injected EIP-1193 provider backed by a fresh
+throwaway key (generated in-test, never printed, never from `.env`). Screenshots under `docs/`:
+`ui-13-gate-preview.png`, `ui-10-onchain-verdict.png`, `ui-12-settlement-proof.png`,
+`ui-11-onchain-unlocked.png`; report `docs/ui-onchain-report.json`; RPC cross-check
+`docs/p5_ui_onchain_verify.json`.
+
+- Selector fixes made this pass (test-only, no product change): the connected address chip lives in
+  the in-game `HUD` (not the menu, which only shows a "Disconnect" button), so the chip assertion
+  moved to after entering the level; `Gate Unlocked` is read from the verdict modal (before it
+  closes) instead of after clicking "Open the gate".
+- Live-UI on-chain settlement (final run) tx `0x827d04f838cd410dd8a2bd3ffb769806c10050db9ee36c919b6d0803a1c3d43e`:
+  independently confirmed via StudioNet RPC `FINALIZED` / `MAJORITY_AGREE` / 1 consensus round /
+  votes [agree, agree, agree, idle, idle]. `get_credit(signer)` = 120000000000000000 atto = 0.12 GEN
+  for a throwaway account that started at 0, so the recipient on-chain credit change = +0.12 GEN.
+  (Two earlier UI runs in this session settled `0x94cd8997...` and `0xa2ecb17b...`, both also
+  FINALIZED / MAJORITY_AGREE / 1 round / +0.12 credit.)
+- P5 UI assertions all green: 0 console errors; connected + menu "Disconnect" shown; address chip
+  present and matching the signer short address; gate opened; Quest Passed; full-66 explorer href;
+  `target=_blank` + `rel=noopener noreferrer`; clicking opened the explorer popup; separate
+  "Payout: 0.1200 GEN credited on-chain (StudioNet cannot send native GEN to the wallet)" line with
+  no "reward sent" wording; `Gate Unlocked` shown.
+- P4 live check: the same run's modal preview badge showed `1.0x · Low` and the settlement showed
+  `x 1.0 risk multiplier` and `~0.12 GEN`, so the client `previewRisk` matched the on-chain payout
+  for the same run. Note the live level-1 city is IP-resolved (the test runner resolved London, not
+  Istanbul); the Istanbul equivalence is covered by the SDK runs `p3_free_L1_Istanbul_*` (0.12 GEN,
+  multiplier 1.00) and the 10/10 boundary unit tests.
+- Honest limitation unchanged: StudioNet cannot move native GEN to the EOA, so the recipient
+  "balance change" measured here is the on-chain per-address credit, not an EOA native delta.

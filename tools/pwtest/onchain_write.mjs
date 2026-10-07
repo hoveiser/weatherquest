@@ -110,7 +110,20 @@ report.steps.connected = onchain;
 const balText = await page.locator("text=/GEN/").first().textContent().catch(() => null);
 report.steps.balance_after_connect = balText;
 
+// menu shows a "Disconnect" control once connected (the address chip is in the in-game HUD)
+report.steps.menu_disconnect_shown =
+  (await page.getByRole("button", { name: "Disconnect" }).first().count().catch(() => 0)) > 0;
+
 await enterLevel1(page);
+
+// connected address chip lives in the in-game HUD (button title "Disconnect wallet",
+// label shortAddr(address, 5) = ADDR.slice(0,7) + ... + ADDR.slice(-5))
+const chip = page.locator('button[title="Disconnect wallet"]').first();
+report.steps.address_chip_present = (await chip.count().catch(() => 0)) > 0;
+const chipText = await chip.textContent().catch(() => null);
+report.steps.address_chip_text = chipText;
+report.steps.address_chip_matches_signer =
+  !!chipText && chipText.includes(ADDR.slice(0, 7)) && chipText.includes(ADDR.slice(-5));
 let modal = false;
 await hold(page, "w", 450);
 for (let i = 0; i < 8 && !modal; i++) { await hold(page, "d", 600); modal = await page.locator("text=Magic Gate Locked").first().isVisible().catch(() => false); }
@@ -119,6 +132,10 @@ report.steps.gate_opened = modal;
 let verdict = {};
 if (modal) {
   await page.locator("input[placeholder='Or type your own custom action...']").fill("take shelter indoors and prepare equipment");
+  // P4 live check: capture the client previewRisk badge (tier + multiplier) before submitting
+  report.steps.preview_multiplier_text = await page.getByText(/\d\.\dx/).first().textContent().catch(() => null);
+  report.steps.preview_tier_text = await page.getByText(/^(Low|Medium|High|Extreme)$/).first().textContent().catch(() => null);
+  await page.screenshot({ path: DOCS + "ui-13-gate-preview.png", fullPage: true });
   const t0 = Date.now();
   await page.getByRole("button", { name: "Submit" }).click();
   // observe which terminal state the UI reaches (do NOT assume)
@@ -166,9 +183,11 @@ if (modal) {
     verdict.hash_matches_submitted = submitted.some((s) => s.hash.toLowerCase() === shownHash);
 
     await page.screenshot({ path: DOCS + "ui-12-settlement-proof.png", fullPage: true });
+    // "Gate Unlocked" renders in the verdict modal on a passing run (before the modal closes)
+    verdict.gate_unlocked_text = await page.getByText(/Gate Unlocked/).first().isVisible().catch(() => false);
     await page.getByRole("button", { name: /Open the gate/ }).first().click().catch(() => {});
     await page.waitForTimeout(600);
-    verdict.gate_unlocked = await page.locator("text=Gate Unlocked").first().isVisible().catch(() => false);
+    verdict.gate_unlocked = verdict.gate_unlocked_text;
     await page.screenshot({ path: DOCS + "ui-11-onchain-unlocked.png", fullPage: true });
   }
 }
