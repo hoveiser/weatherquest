@@ -310,9 +310,9 @@ See `SUBMISSION.md` for the fill-in submission fields and the verification outco
   GEN amount uses the same `base(level) * multiplier_x100 / 100` formula (no step/efficiency term).
   The same boundary table used by the Python tests is unit-tested in
   `frontend/tests/risk.test.mjs` (10/10 pass with the bundled Node), so the displayed tier, multiplier
-  and GEN for a given weather snapshot match the contract. A live-site screenshot confirming the
-  Istanbul preview equals the on-chain payout for the same run is captured under `docs/` after the
-  Pages deploy (P5).
+  and GEN for a given weather snapshot match the contract. The live-site screenshot confirming the
+  Istanbul preview equals the on-chain payout for the same run is captured after the Pages deploy
+  (see the live-UI proof bullet in §12c).
 - **StudioNet DOES credit recipient EOA native balances for the campaign payout.** An earlier
   conclusion that it could not was WRONG and is corrected here: the blocker was the API, not
   the network. `gl.get_contract_at(eoa).emit_transfer(...)` sends an internal IC->IC message
@@ -368,6 +368,23 @@ Every case uses a fresh throwaway account (StudioNet is gasless). Payout is veri
   (step-count payout manipulation) is fully closed even under injection, but the AI judgment itself
   is not injection-proof in this instance (see §13 findings). Record: `inject_L1_Istanbul`, tx
   `0x2ee4ec3ade1f2faf9b3c00cc0002537c79d26f991675f11c9b726f5ab2567217`.
+- **Live-UI proof on the current bundle** (`tools/pwtest/onchain_write.mjs`, evidence
+  `docs/ui-onchain-report.json`, screenshots `docs/ui-13-gate-preview.png`,
+  `docs/ui-10-onchain-verdict.png`, `docs/ui-12-settlement-proof.png`,
+  `docs/ui-11-onchain-unlocked.png`). After the Pages rebuild, the LIVE site was driven
+  end-to-end with a freshly generated throwaway wallet (`0x6065e7E8834bCd01Ce64745A925498E6D6ecC16C`,
+  private key generated in-memory, never printed or stored). Level 1 Istanbul, sensible action:
+  preview badge `1.0x · Low` and settlement line `≈0.10 GEN (× 1.0 risk multiplier)`; UI reached
+  `Quest Passed` after 51 s with settlement tx
+  `0xeec38159e5c02a8b1aadaa7cef6ddba9a812de61b1cf051355bbd6f09b1fd941`; the explorer link carries
+  the FULL 66-character hash (`hash_href_full66: true`) and opens the Studio explorer in a new
+  tab; payout line reads `Payout: 0.1000 GEN recorded on-chain ...` with NO "reward sent" and NO
+  efficiency/steps wording anywhere on the page (`forbidden_wording_hits: []`); 0 console errors.
+  The wallet's NATIVE balance measured straight from the node moved 0 -> 0.1 GEN (delta == the
+  shown payout). Independent SDK re-check (`scripts/wq_ui_tx_verify.py`): that tx is `FINALIZED` /
+  `MAJORITY_AGREE`, leader `SUCCESS`, 5 votes, 1 consensus round, and `get_credit(wallet)` =
+  100000000000000000 atto = exactly `base(1) * 100 / 100` (derived multiplier 1.00, matching the
+  UI preview).
 
 ### 12a. Native-payout + relevance round (previous contract `0x599EA254...`, pre-reviewer-fix)
 
@@ -387,7 +404,7 @@ This round proves the two things the earlier credit round could not: native GEN 
 the player EOA, and the relevance gate rejects gibberish while keeping the single LLM call and
 exact validator consensus.
 
-**Live-UI proof (`tools/pwtest/onchain_write.mjs`, evidence `docs/ui-onchain-report.json`).** The
+**Live-UI proof (`tools/pwtest/onchain_write.mjs`, evidence snapshot `docs/ui-onchain-report-0599.json`; the live file `docs/ui-onchain-report.json` now records the current-contract run in §12c).** The
 published GitHub Pages bundle (https://hoveiser.github.io/weatherquest/) is driven end-to-end by
 Playwright with a freshly generated throwaway wallet (private key never printed or stored) whose
 `eth_sendTransaction` is relayed to StudioNet. Level 1, sensible action, Low weather: wallet
@@ -498,11 +515,12 @@ contract; all 14 such triggered transfers failed `Contract not found` (evidence 
 the 26 runs above are 26/26 `MAJORITY_AGREE`, 1 consensus round (no rotation), 5-of-5 votes.
 
 **Live UI Playwright test.** The on-chain settlement made through the UI against the PREVIOUS
-contract (`0x3cca45ee...`, hash recorded in `docs/ui-onchain-report.json`) still shows the old
+contract (`0x3cca45ee...`, hash recorded in the git history of `docs/ui-onchain-report.json`, which
+later runs have since overwritten) still showed the old
 truncated `…be0607` form. P2 rewires the UI so the settlement and payout links carry the full
-66-character hash; the same Playwright harness in `tools/pwtest/` is re-run against the new
-bundle (contract `0x2d764187A908d1677510c5E7FE69e8e7C1810299`) once GitHub Pages publishes the
-deploy from P6, and its screenshots land under `docs/` (`ui-*.png`). The credit-delivery
+66-character hash; the same Playwright harness in `tools/pwtest/` has since been re-run against
+each newer published bundle (most recently against `0x6028EB22...`, see §12c), with screenshots
+under `docs/` (`ui-*.png`). The credit-delivery
 themselves are already verified on-chain (SDK, not UI) via the p3 rows above, and the
 P1 redeploy verification `docs/p1_credit_verify.json` shows `0x46a7b795d8b1c491f83c3a966b690ed69b5280d50ccc3a327632899ab22467ed` FINALIZED /
 `MAJORITY_AGREE` with `get_credit(player) = 0.12 GEN` and the house unchanged at 30.0 GEN.

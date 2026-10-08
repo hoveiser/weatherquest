@@ -36,6 +36,12 @@ while (queue.length && guard < 40) {
   for (const m of j.body.matchAll(/assets\/[A-Za-z0-9_.-]+\.js/g)) {
     if (!seen.has(m[0])) queue.push(m[0]);
   }
+  // Vite emits dynamic-import chunk refs as "./name.js" relative to the
+  // importer (which lives under assets/), so resolve them the same way.
+  for (const m of j.body.matchAll(/["']\.\/([A-Za-z0-9_.-]+\.js)["']/g)) {
+    const nm = "assets/" + m[1];
+    if (!seen.has(nm)) queue.push(nm);
+  }
 }
 out.assets_crawled = seen.size;
 out.any_asset_contains_address = Object.values(out.hits).some((h) => h.contains_address);

@@ -47,7 +47,7 @@ new_hits = []
 old_hits = []
 queue = list(js)
 guard = 0
-while queue and guard < 30:
+while queue and guard < 40:
     guard += 1
     name = queue.pop(0)
     if name in fetched:
@@ -67,9 +67,14 @@ while queue and guard < 30:
     if present_old:
         old_hits.append((name, present_old))
     # follow further chunk references inside this asset
-    for deeper in re.findall(r"assets/[A-Za-z0-9_-]+\.js", body):
+    for deeper in re.findall(r"assets/[A-Za-z0-9_.-]+\.js", body):
         if deeper not in fetched:
             queue.append(deeper)
+    # Vite dynamic-import refs appear as "./name.js" relative to assets/
+    for deeper in re.findall(r"""["']\./([A-Za-z0-9_.-]+\.js)["']""", body):
+        nm = "assets/" + deeper
+        if nm not in fetched:
+            queue.append(nm)
 
 print("assets crawled:", len(fetched))
 print("contain NEW:", new_hits or "NONE")

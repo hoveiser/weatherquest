@@ -198,6 +198,17 @@ if (modal) {
     verdict.payout_status_shown = !!(verdict.payout_status_text || "").match(/Payout:/);
     verdict.no_reward_sent_wording = !!(verdict.payout_status_text || "") && !/reward sent/i.test(verdict.payout_status_text);
 
+    // Reviewer-fix checks: the settlement line carries the preview GEN + the
+    // weather multiplier only (no efficiency/step term), and no forbidden
+    // reward wording ("efficiency", "Perfect run", "reward sent") is visible
+    // anywhere on the page while the verdict modal is open.
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    verdict.payout_line_text =
+      (bodyText.match(/[\u2248+]?[\d.]+ GEN \(.{0,40}multiplier\)/) || [null])[0];
+    verdict.forbidden_wording_hits = ["efficiency", "Perfect run", "reward sent"]
+      .filter((w) => new RegExp(w, "i").test(bodyText));
+    verdict.no_forbidden_wording = verdict.forbidden_wording_hits.length === 0;
+
     // ---- native GEN delivery proof (the corrected claim) ----
     // StudioNet applies the emit_transfer on FINALIZED, which can lag the verdict
     // by a few seconds. Poll the wallet's NATIVE balance straight from the node.
