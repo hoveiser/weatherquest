@@ -4,8 +4,11 @@ import {
   baseRewardGen,
   cityForLevel,
   difficultyBand,
+  maxPayoutAtto,
+  objectiveForLevel,
   type DifficultyBand,
 } from "../lib/maps";
+import { formatAtto } from "../lib/payout";
 
 interface Props {
   homeCity: string;
@@ -31,6 +34,11 @@ const BAND_ICON: Record<DifficultyBand, string> = {
  * CAMPAIGN_CITIES (Level 1 is always Istanbul, never the detected location).
  * Conquered levels show a green "Already Conquered ✅" badge; the recommended
  * next level is highlighted.
+ *
+ * Every GEN figure on a card is PER-LEVEL (this level's base and this level's
+ * ceiling at the 5.0x maximum multiplier), computed with the contract's own
+ * integer atto math so the promise can never exceed what the chain pays. No
+ * cumulative or global amount appears here.
  */
 export default function LevelSelect({ homeCity, completed, nextLevel, onPlay }: Props) {
   const levels = Array.from({ length: MAX_LEVEL }, (_, i) => i + 1);
@@ -57,7 +65,8 @@ export default function LevelSelect({ homeCity, completed, nextLevel, onPlay }: 
           const isDone = completed.includes(level);
           const isNext = level === nextLevel;
           const base = baseRewardGen(level);
-          const maxPayout = base * 5;
+          // PER-LEVEL ceiling in atto (base * 5.00x), exact contract math.
+          const maxAtto = maxPayoutAtto(level);
           return (
             <motion.button
               key={level}
@@ -82,8 +91,11 @@ export default function LevelSelect({ homeCity, completed, nextLevel, onPlay }: 
               <div className="truncate text-sm font-bold text-ink">
                 {cityForLevel(level, homeCity)}
               </div>
-              <div className="font-mono text-[11px] text-muted">
-                {base.toFixed(2)} GEN base · up to {maxPayout.toFixed(2)} GEN
+              <div className="font-mono text-[11px] text-muted" data-testid={`level-${level}-payout`}>
+                this level: {base.toFixed(2)} GEN base · up to {formatAtto(maxAtto)} GEN
+              </div>
+              <div className="truncate font-mono text-[10px] text-slate-500" title={objectiveForLevel(level)}>
+                goal: {objectiveForLevel(level)}
               </div>
 
               <div className="mt-1">

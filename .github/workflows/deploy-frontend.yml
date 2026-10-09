@@ -42,23 +42,29 @@ jobs:
         # VITE_ONCHAIN would make the marketplace create/submit flows throw (they have
         # no funded escrow). A public address is safe to commit here.
         #
-        # This is the campaign-payout contract redeployed with native GEN payouts.
-        # Payouts reach the player's wallet as real native GEN via a
-        # @gl.evm.contract_interface emit_transfer (the earlier
-        # gl.get_contract_at(eoa) pattern silently no-oped against EOAs), and
-        # complete_level also mirrors each payout in an on-chain per-address credit
-        # ledger (get_credit). Verified on StudioNet: a passing complete_level moved
-        # the wallet's native balance by exactly the payout (docs/final_verify.json).
-        # The action judgment now also gates on relevance, so gibberish / off-topic
-        # text is rejected even on a Low tier (single LLM call, exact consensus
-        # preserved). The weather multiplier stays deterministic integer math, ALL
-        # levels 1-10 (level 1 is Istanbul) read a fixed integer coordinate table so
-        # a caller cannot pick the stormiest city to boost the reward, and validators
-        # compare tier/multiplier/success EXACTLY. Caller-supplied navigation step
-        # counts were removed from the reward path entirely: there is no efficiency
-        # bonus, payout = base(level) * multiplier / 100. Funded with 30+ GEN.
+        # This bundle points at the layered-verification redeploy 0x8b317B94...
+        # (deploy tx 0x46acbc553f73b45e4b87e74d6fa15964d93cc434319117954f516d6abc48dedb,
+        # FINALIZED / MAJORITY_AGREE / SUCCESS; house funded with 30 GEN by tx
+        # 0x0056cd40f72a7297021ba94e3ebeb69ad0949e94421e5eb1950c99a30423b3a6; evidence
+        # in docs/deploy_new.json). Action verification there is three layers: a
+        # deterministic pre-filter that reverts with [EXPECTED] before any LLM or
+        # network work, a strict rubric whose success flag is DERIVED by the contract
+        # (a model-supplied "success" key is ignored), and an on-chain LEVEL_OBJECTIVE
+        # table so off-topic text fails on every tier including Low.
+        # Payouts reach the wallet as real native GEN via a
+        # @gl.evm.contract_interface emit_transfer, and the settlement screen now reads
+        # the PER-LEVEL amount from get_level_payout(account, level) instead of the
+        # cumulative get_credit total, cross-checked against the wallet's measured
+        # native balance delta. The cumulative figure is only ever shown under a
+        # "total credited to your address" label, and contract-wide counters moved to
+        # get_global_stats so a global number cannot appear in a per-player panel.
+        # The weather multiplier stays deterministic integer math, ALL levels 1-10
+        # (level 1 is Istanbul) read a fixed integer coordinate table so a caller
+        # cannot pick the stormiest city to boost the reward, and validators compare
+        # tier/multiplier/derived success EXACTLY. There is no efficiency or step term:
+        # payout = base(level) * multiplier / 100. Funded with 30 GEN.
         env:
-          VITE_CONTRACT_ADDRESS: "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
+          VITE_CONTRACT_ADDRESS: "0x8b317B94AF764e9de587805d264CbBea59Ce3aE2"
         run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

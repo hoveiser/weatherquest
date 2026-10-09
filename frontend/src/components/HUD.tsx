@@ -85,9 +85,15 @@ export default function HUD({
                 </motion.button>
               )}
             </div>
-            <div className="mt-1 flex items-baseline gap-1 font-mono text-lg font-bold text-primary">
+            {/* WALLET-NATIVE class: the address's own GEN balance. Not a payout and
+                not the contract's cumulative credit ledger (shown on the menu bar). */}
+            <div
+              className="mt-1 flex items-baseline gap-1 font-mono text-lg font-bold text-primary"
+              data-testid="wallet-balance"
+              title={onchain ? "Native GEN balance of your wallet" : "Demo session credits (simulated, not on-chain)"}
+            >
               {displayBalance.toFixed(1)}
-              <span className="text-xs text-muted">GEN</span>
+              <span className="text-xs text-muted">GEN in wallet</span>
             </div>
           </div>
 
@@ -99,7 +105,7 @@ export default function HUD({
             </div>
             {optimalSteps != null && (
               <div className="mt-0.5 font-mono text-[10px] text-muted">
-                🚶 {steps ?? 0} steps · optimal {optimalSteps} (cosmetic, not rewarded)
+                🚶 {steps ?? 0} steps · optimal {optimalSteps} (cosmetic, never rewarded)
               </div>
             )}
           </div>

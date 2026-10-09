@@ -1,3 +1,8 @@
+// LEGACY MARKETPLACE MODAL (class: not-payable, and not in the shipped build: main.tsx
+// mounts App.tsx only). Submitting here runs lib/contract.submitAction's local
+// heuristic, which throws in on-chain mode because the contract rejects create_quest
+// on this deployment. Every GEN figure in this modal is therefore a simulation and is
+// labelled as such; validators never settle it and no GEN moves.
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X, MapPin, Coins, Clock, ShieldQuestion, Send, Info } from "lucide-react";
@@ -123,7 +128,7 @@ export default function QuestDetailModal({ quest, onClose }: Props) {
                       {loading ? "Reading live weather…" : condition}
                       {temp != null && <span className="tabular-nums text-muted">{Math.round(temp)}°C</span>}
                     </span>
-                    <Tooltip label="Preview from live Open-Meteo data. The final multiplier is set by the on-chain AI consensus.">
+                    <Tooltip label="Preview from live Open-Meteo data. On the campaign levels the final multiplier is set by on-chain consensus; a demo bounty like this one is simulated locally.">
                       <span className="flex items-center gap-1 text-[11px] text-muted">
                         <Info size={13} aria-hidden /> preview
                       </span>
@@ -133,7 +138,7 @@ export default function QuestDetailModal({ quest, onClose }: Props) {
                     <>
                       <RiskMeter multiplier={risk.multiplier} tier={risk.risk_tier} />
                       <p className="mt-3 flex items-center justify-between text-sm">
-                        <span className="text-muted">Projected payout</span>
+                        <span className="text-muted">Demo projection (not payable)</span>
                         <span className="font-bold text-ink">
                           {formatGen(payoutPreview(quest, risk))}
                         </span>
@@ -149,7 +154,7 @@ export default function QuestDetailModal({ quest, onClose }: Props) {
                   <div className="flex items-center gap-2 rounded-card bg-white/5 px-3 py-2">
                     <Coins size={16} className="text-warning" aria-hidden />
                     <div>
-                      <p className="text-xs text-muted">Base reward</p>
+                      <p className="text-xs text-muted">Demo base reward</p>
                       <p className="font-semibold text-ink">{formatGen(quest.baseRewardGen)}</p>
                     </div>
                   </div>
@@ -186,8 +191,9 @@ export default function QuestDetailModal({ quest, onClose }: Props) {
                       </Button>
                     </div>
                     <p className="text-xs text-muted">
-                      The on-chain AI reviews your action against the current risk tier. Reckless moves in
-                      extreme weather will fail; well-adapted moves win the multiplied reward.
+                      This bounty is a local simulation: no validator judges it and no GEN moves,
+                      because the contract rejects quest escrow on this deployment. The on-chain
+                      flow is the 10-level campaign, where validators settle base × multiplier.
                     </p>
                   </div>
                 ) : (

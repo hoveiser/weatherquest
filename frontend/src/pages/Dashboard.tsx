@@ -36,7 +36,8 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-extrabold text-ink sm:text-3xl">Quest Board</h1>
           <p className="mt-1 text-sm text-muted">
-            Active bounties. Real weather drives the risk multiplier and the AI validates your moves.
+            Demo bounties (simulated, not payable). The 10-level campaign is the flow that
+            settles GEN through on-chain validators.
           </p>
         </div>
         <Button onClick={() => (window.location.hash = "#/create")}>

@@ -3,8 +3,9 @@
 //
 // Rendered when the Kaboom player walks into the closed Magic Gate. The game
 // is paused while this modal is open. It shows the live weather + risk
-// multiplier, offers 3 action cards plus a custom input, runs a "judging"
-// state, and animates the verdict (success glow / failure shake).
+// multiplier, the on-chain objective the validators grade against, offers 3
+// action cards plus a custom input, runs a "judging" state, and animates the
+// verdict (success glow / failure shake).
 //
 // The actual verdict comes from `onSubmit` (the parent), which reuses the
 // project's existing complete_level demo/on-chain logic. Four verdict shapes are
@@ -12,14 +13,25 @@
 // ERROR shown verbatim - wallet rejection / revert / insufficient funds / network
 // (no shake, no generic "AI said no"); and a validator CONGESTION TIMEOUT (60s,
 // no shake, "may finalize later").
+//
+// MONEY LABELING CONTRACT (reviewer fix): every GEN figure in the settlement
+// block names its class, and the three classes never share a line:
+//   Level N payout            PER-LEVEL   from get_level_payout(account, level)
+//   Wallet native GEN a -> b  WALLET-NATIVE measured balance delta
+//   Total credited to your    PER-PLAYER  from get_total_credit (cumulative, all
+//   address                   cumulative  levels - never presented as one prize)
 // ============================================================================
 import { useState } from 'react';
 import { AnimatePresence, motion, type Variants } from 'framer-motion';
 import type { LevelOutcome, RiskAnalysis, WeatherSnapshot } from './types';
-import { HashLink, payoutStatusText } from './components/TxLink';
+import { HashLink } from './components/TxLink';
+import { objectiveForLevel } from './lib/maps';
+import { nativeDeltaLabel, payoutStatusLabel, totalCreditedLabel } from './lib/payout';
 
 interface Props {
   open: boolean;
+  /** Campaign level being attempted (1-10). Drives the objective text. */
+  level: number;
   city: string;
   weather: WeatherSnapshot | null;
   risk: RiskAnalysis | null;
@@ -32,10 +44,14 @@ interface Props {
 
 type Mode = 'select' | 'judging' | 'verdict';
 
+// Action presets offered on the cards. These MUST survive the contract's Layer 1
+// pre-filter (12..200 chars, at least 3 letter words, no blocked characters), so
+// they are full phrases and every one names the gate - the objective the judge
+// grades `on_topic` against. Changing a label here changes what gets sent on-chain.
 const ICONS: Record<string, string> = {
-  'Build a Raft': '🏗️',
-  'Swim Across': '🏃',
-  'Use Weather Magic': '🧙',
+  'Build a raft and reach the gate': '🏗️',
+  'Swim across to the magic gate': '🏃',
+  'Use weather magic to reach the gate': '🧙',
 };
 
 const TIER_BADGE: Record<string, string> = {
@@ -55,7 +71,7 @@ const shake: Variants = {
   shake: { x: [-6, 6, -6, 6, -3, 3, 0], scale: 1, opacity: 1, y: 0 },
 };
 
-export default function GateModal({ open, city, weather, risk, onSubmit, onResult, onClose }: Props) {
+export default function GateModal({ open, level, city, weather, risk, onSubmit, onResult, onClose }: Props) {
   const [mode, setMode] = useState<Mode>('select');
   const [action, setAction] = useState('');
   const [result, setResult] = useState<LevelOutcome | null>(null);
@@ -121,6 +137,12 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
   };
 
   const busy = mode === 'judging';
+  // Client-side mirror of the contract's Layer 1 gate (12..200 chars, at least 3
+  // words containing letters). Blocking here saves a consensus round that would
+  // revert anyway; the contract still enforces it, this is only a fast hint.
+  const trimmedAction = action.trim();
+  const wordish = trimmedAction.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length;
+  const tooShort = trimmedAction.length < 12 || wordish < 3;
   const isTimeout = mode === 'verdict' && !!result?.timedOut;
   const isFail = mode === 'verdict' && !!result && !result.success && !result.timedOut;
   // A specific transaction error (wallet rejection / revert / funding / network) is shown
@@ -284,11 +306,13 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                 </p>
                 {result.success ? (
                   <>
-                    <p className="mt-3 font-mono text-sm text-white">
+                    {/* PER-LEVEL: exactly what get_level_payout(account, level) stored.
+                        Never a cumulative or global figure on this line. */}
+                    <p className="mt-3 font-mono text-sm text-white" data-testid="level-payout">
                       {result.onChain ? '≈' : '+'}
-                      {result.payoutGen.toFixed(2)} GEN{' '}
+                      {result.payoutGen.toFixed(4)} GEN{' '}
                       <span className="text-slate-400">
-                        (× {result.risk.multiplier.toFixed(1)} risk multiplier)
+                        (Level {result.level} payout only · × {result.risk.multiplier.toFixed(1)} risk multiplier)
                       </span>
                     </p>
                     <p className="mt-1 font-mono text-[11px] leading-relaxed text-slate-400" data-testid="settlement-proof">
@@ -301,15 +325,31 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                             </>
                           ) : null}
                           <br />
-                          <span data-testid="payout-status">{payoutStatusText(result.payoutStatus, result.creditGen)}</span>
+                          <span data-testid="payout-status">
+                            {payoutStatusLabel(result.payoutStatus, result.levelPayoutAtto)}
+                          </span>
                           {result.payoutTxHash ? (
                             <>
                               {' '}· payout tx <HashLink hash={result.payoutTxHash} testId="payout-tx-link" />
                             </>
                           ) : null}
+                          {/* WALLET-NATIVE: measured balance before -> after (proof it landed). */}
+                          <br />
+                          <span data-testid="native-delta">
+                            {nativeDeltaLabel(result.nativeBeforeAtto, result.nativeAfterAtto)}
+                            {result.nativeDeltaMatches === false ? ' · does not match the level payout yet' : ''}
+                          </span>
+                          {/* PER-PLAYER cumulative: explicitly all levels, not this prize. */}
+                          <br />
+                          <span data-testid="total-credited">
+                            {totalCreditedLabel(result.totalCreditAtto ?? 0n)}
+                          </span>
                         </>
                       ) : (
-                        <>🎮 Demo - reward simulated locally. Connect a wallet to settle on-chain.</>
+                        <>
+                          🎮 Demo - reward simulated locally. Connect a wallet to settle on-chain.{' '}
+                          <span data-testid="demo-objective">Objective graded on-chain: {objectiveForLevel(level)}</span>
+                        </>
                       )}
                     </p>
                     <motion.button
@@ -345,6 +385,13 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                 <p className="mb-2 text-[10px] uppercase tracking-wider text-slate-400">
                   Choose your action
                 </p>
+                {/* The exact string the contract's LEVEL_OBJECTIVE feeds the judge, so
+                    the player sees the bar their action is graded against. */}
+                <p className="mb-3 rounded-card border border-white/10 bg-white/5 px-3 py-2 text-[11px] text-slate-300">
+                  <span className="uppercase tracking-wider text-slate-500">Objective · </span>
+                  <span data-testid="level-objective">{objectiveForLevel(level)}</span>
+                  <span className="text-slate-500"> · off-topic or empty text is rejected, even in calm weather.</span>
+                </p>
                 <div className="mb-4 grid grid-cols-3 gap-3">
                   {Object.entries(ICONS).map(([name, icon]) => {
                     const selected = action.includes(name);
@@ -371,6 +418,7 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                 <div className="flex gap-2">
                   <input
                     value={action}
+                    maxLength={200}
                     onChange={(e) => setAction(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void submit();
@@ -379,18 +427,25 @@ export default function GateModal({ open, city, weather, risk, onSubmit, onResul
                     className="min-w-0 flex-1 rounded-pill border border-white/10 bg-white/5 px-4 py-2.5 text-sm outline-none transition-colors placeholder:text-slate-500 focus:border-secondary"
                   />
                   <motion.button
-                    whileHover={{ scale: action.trim() ? 1.03 : 1 }}
-                    whileTap={{ scale: action.trim() ? 0.97 : 1 }}
-                    disabled={!action.trim() || busy}
+                    whileHover={{ scale: action.trim() && !tooShort ? 1.03 : 1 }}
+                    whileTap={{ scale: action.trim() && !tooShort ? 0.97 : 1 }}
+                    disabled={!action.trim() || busy || tooShort}
                     onClick={() => void submit()}
                     className="rounded-pill bg-primary px-5 py-2.5 text-sm font-bold text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Submit
                   </motion.button>
                 </div>
+                {tooShort && trimmedAction.length > 0 && (
+                  <p className="mt-2 text-[11px] text-warning" data-testid="action-too-short">
+                    Needs at least 12 characters and 3 words of real text - short filler is
+                    rejected on-chain and pays nothing.
+                  </p>
+                )}
                 <p className="mt-3 font-mono text-[10px] leading-relaxed text-slate-500">
-                  the ai validator re-checks live {city} weather and judges whether your action is
-                  safe for these conditions.
+                  the ai validator checks your action against the objective above and the live
+                  {city} conditions. text aimed at the judge, empty filler, or anything off-topic
+                  is rejected and pays nothing.
                 </p>
               </>
             )}

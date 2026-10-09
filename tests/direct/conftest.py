@@ -116,12 +116,42 @@ def mock_forecast_only(direct_vm, current=None):
 
 
 def mock_llm_judgment(direct_vm, success=True, why="fine", relevant=True):
-    """Mock the ONE remaining LLM call: the tier-keyed action judgment that now
-    also returns a `relevant` flag (gibberish / off-topic => relevant=False)."""
-    direct_vm.mock_llm(
-        r".*Return strict JSON.*",
-        json.dumps({"relevant": relevant, "success": success, "why": why}),
-    )
+    """Mock the ONE action-judgment LLM call. The judge now returns a STRUCTURED
+    RUBRIC and the contract DERIVES success (it ignores any model-supplied
+    'success'). The old kwargs stay readable for callers: relevant -> on_topic,
+    success -> safe. A decoy 'success' (the OPPOSITE of the derived verdict) and a
+    free-text 'why' are injected to prove the contract uses only the rubric."""
+    rubric = {
+        "on_topic": relevant,
+        "concrete_action": True,
+        "manipulation": False,
+        "safe": success,
+        # Decoys the contract MUST ignore (derived success never reads these):
+        "success": not success,
+        "why": why,
+    }
+    direct_vm.mock_llm(r".*Return strict JSON.*", json.dumps(rubric))
+
+
+def mock_rubric(direct_vm, on_topic=True, concrete_action=True, manipulation=False,
+                safe=True, **extra):
+    """Mock the judge with an EXPLICIT rubric (plus any extra/decoy keys) so a test
+    can pin the derived-success truth table or prove extra keys are ignored."""
+    payload = {
+        "on_topic": on_topic,
+        "concrete_action": concrete_action,
+        "manipulation": manipulation,
+        "safe": safe,
+    }
+    payload.update(extra)
+    direct_vm.mock_llm(r".*Return strict JSON.*", json.dumps(payload))
+
+
+def mock_raw_llm(direct_vm, payload):
+    """Mock the judge with an arbitrary payload (dict or raw string) to drive the
+    malformed / missing-key / non-dict fail-closed paths."""
+    body = payload if isinstance(payload, str) else json.dumps(payload)
+    direct_vm.mock_llm(r".*Return strict JSON.*", body)
 
 
 def deploy(direct_deploy, direct_vm, direct_alice, house=1000):

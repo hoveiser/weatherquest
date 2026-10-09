@@ -52,8 +52,8 @@ export default function Landing() {
             transition={{ delay: 0.1 }}
             className="mx-auto mt-5 max-w-2xl text-base text-muted sm:text-lg"
           >
-            WeatherQuest posts GEN-funded gaming bounties where live weather sets a{" "}
-            <strong className="text-ink">risk multiplier</strong> and an on-chain AI judges whether your
+            WeatherQuest pays GEN for surviving live weather: real forecasts set a{" "}
+            <strong className="text-ink">risk multiplier</strong> and GenLayer validators judge whether your
             action is safe. Braver moves in brutal conditions pay bigger.
           </motion.p>
 
@@ -92,10 +92,10 @@ export default function Landing() {
 
         <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { icon: Swords, title: "1 · Post a bounty", body: "Fund a quest with GEN, pick a city and an expiry window." },
-            { icon: CloudRain, title: "2 · Weather sets risk", body: "The contract reads Open-Meteo and the AI derives a 1.0x–5.0x multiplier." },
-            { icon: BrainCircuit, title: "3 · AI judges you", body: "Submit an action. The AI weighs it against the current risk tier." },
-            { icon: Coins, title: "4 · Payout scales", body: "Survive the elements and earn base reward × multiplier. Fail, and funds return." },
+            { icon: Swords, title: "1 \u00b7 Post a bounty", body: "Fund a quest with GEN (escrow is disabled on this deployment) or play the on-chain campaign." },
+            { icon: CloudRain, title: "2 \u00b7 Weather sets risk", body: "The contract reads Open-Meteo and the AI derives a 1.0x to 5.0x multiplier." },
+            { icon: BrainCircuit, title: "3 \u00b7 AI judges you", body: "Submit an action. The AI weighs it against the current risk tier." },
+            { icon: Coins, title: "4 \u00b7 Payout scales", body: "Survive the elements and earn base reward \u00d7 multiplier. A rejected action pays nothing and costs nothing." },
           ].map(({ icon: Icon, title, body }, i) => (
             <motion.div
               key={title}

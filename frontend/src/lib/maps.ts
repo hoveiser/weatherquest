@@ -73,6 +73,33 @@ export const CAMPAIGN_CITIES: Readonly<Record<number, string>> = {
   10: "Tromsø",
 };
 
+/**
+ * On-chain objective per level. MUST stay byte-identical to LEVEL_OBJECTIVE in
+ * contracts/weatherquest.py (index 0 is the unused free-form slot): the contract
+ * feeds this exact string to the judge as the rubric's `on_topic` bar, so the text
+ * the player reads in the UI is the text the validators grade against. A drift
+ * here would silently make the UI promise an easier objective than the chain
+ * enforces. tests/direct/test_validator_logic.py pins the contract side; the
+ * frontend unit test pins this array against the same table.
+ */
+export const LEVEL_OBJECTIVE: readonly string[] = [
+  "",
+  "reach the magic gate across the old city",
+  "reach the magic gate through the busy crossing",
+  "reach the magic gate past the harbour",
+  "reach the magic gate over the open lava field",
+  "reach the magic gate through the gardens",
+  "reach the magic gate beside the pyramids",
+  "reach the magic gate over the coastal hills",
+  "reach the magic gate across the waterfront",
+  "reach the magic gate across the frozen square",
+  "reach the magic gate under the northern lights",
+];
+
+export function objectiveForLevel(level: number): string {
+  return LEVEL_OBJECTIVE[level] ?? "reach the magic gate";
+}
+
 export type DifficultyBand = "Easy" | "Medium" | "Hard";
 
 export function difficultyBand(level: number): DifficultyBand {
@@ -98,6 +125,16 @@ export function payoutGenExact(level: number, multiplierX100: number): number {
   const baseAtto = BigInt(LEVEL_BASE_GEN[level] ?? 0) * 10n ** 18n / BigInt(CAMPAIGN_REWARD_SCALE);
   const payoutAtto = (baseAtto * BigInt(Math.round(multiplierX100))) / 100n;
   return Number(payoutAtto) / 1e18;
+}
+
+/**
+ * PER-LEVEL ceiling in atto: what this level can pay at the maximum multiplier
+ * (500 = 5.0x). Used by the level-select card so the number shown is always the
+ * payout class for THAT level, never a cumulative or global total.
+ */
+export function maxPayoutAtto(level: number): bigint {
+  const baseAtto = BigInt(LEVEL_BASE_GEN[level] ?? 0) * 10n ** 18n / BigInt(CAMPAIGN_REWARD_SCALE);
+  return (baseAtto * 500n) / 100n;
 }
 
 export function cityForLevel(level: number, homeCity: string): string {

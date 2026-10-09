@@ -3,7 +3,7 @@ import type { RiskTier } from "../types";
 import clsx from "clsx";
 
 interface Props {
-  multiplier: number; // 1.0 – 5.0
+  multiplier: number; // 1.0 to 5.0
   tier: RiskTier;
   compact?: boolean;
 }
@@ -22,7 +22,7 @@ const TIER_BAR: Record<RiskTier, string> = {
   Extreme: "from-primary to-danger",
 };
 
-/** Horizontal risk gauge (1.0x – 5.0x) with an animated fill and tier label. */
+/** Horizontal risk gauge (1.0x to 5.0x) with an animated fill and tier label. */
 export default function RiskMeter({ multiplier, tier, compact = false }: Props) {
   const pct = Math.min(100, Math.max(0, ((multiplier - 1) / 4) * 100));
   return (

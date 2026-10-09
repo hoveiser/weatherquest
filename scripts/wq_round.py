@@ -42,7 +42,7 @@ from eth_account import Account  # noqa: E402
 from genlayer_py import create_client, studionet  # noqa: E402
 
 ADDR = os.environ.get(
-    "WQ_CONTRACT_ADDRESS", "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
+    "WQ_CONTRACT_ADDRESS", "0x8b317B94AF764e9de587805d264CbBea59Ce3aE2"
 )
 GEN = 10**18
 SCALE = 100
@@ -149,7 +149,11 @@ def campaign_payout(addr):
     p = _read("campaign_progress", args=[addr])
     if p is None:
         return None, None
-    return int(p.get("campaign_payout_atto", 0)), [int(x) for x in (p.get("completed") or [])]
+    # campaign_progress is per-player: it reports total_credit_atto for THIS address.
+    # The contract-wide counter lives in get_global_stats only (reviewer fix), so
+    # reading a per-player number out of a per-player view must never fall back to 0.
+    return int(p.get("total_credit_atto", p.get("campaign_payout_atto", 0))), [
+        int(x) for x in (p.get("completed") or [])]
 
 
 def read_credit(addr):

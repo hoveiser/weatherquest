@@ -206,7 +206,14 @@ export async function readGenBalance(address: string): Promise<GenBalance> {
   return { address, wei, gen: Number(wei) / 1e18 };
 }
 
-/** campaign_progress(account) - non-consensus view, safe for the UI to trust. */
+/**
+ * campaign_progress(account) - non-consensus view, safe for the UI to trust.
+ * PER-PLAYER only: the contract deliberately does NOT return the contract-wide
+ * counter here (it used to, which is how a cumulative total could get shown as a
+ * level prize). The all-time total for ONE address is `totalCreditAtto`; the
+ * global figure lives only in readGlobalStats() and must never be rendered inside
+ * a per-player panel.
+ */
 export async function readCampaignProgress(address: string, contract: string): Promise<CampaignProgress> {
   const raw = await withChainRetry(async () => {
     const client = await makeClient(address);
@@ -222,15 +229,77 @@ export async function readCampaignProgress(address: string, contract: string): P
     completedCount: Number(raw.completed_count ?? 0),
     nextLevel: Number(raw.next_level ?? 0),
     maxLevel: Number(raw.max_level ?? 10),
+    totalCreditAtto: BigInt(String(raw.total_credit_atto ?? "0")),
+  };
+}
+
+/**
+ * get_level_payout(account, level) - the PER-LEVEL payout the contract stored when
+ * that address settled that level. This is the only authoritative answer to "what
+ * did this level pay me", and it never grows when another level is completed.
+ */
+export async function readLevelPayout(
+  address: string,
+  contract: string,
+  level: number,
+): Promise<{ completed: boolean; payoutAtto: bigint }> {
+  const raw = await withChainRetry(async () => {
+    const client = await makeClient(address);
+    return (await client.readContract({
+      address: contract as `0x${string}`,
+      functionName: "get_level_payout",
+      args: [address, BigInt(level)],
+    })) as Record<string, unknown>;
+  });
+  return {
+    completed: raw.completed === true || String(raw.completed) === "True",
+    payoutAtto: BigInt(String(raw.payout_atto ?? "0")),
+  };
+}
+
+/** get_total_credit(account) - PER-PLAYER cumulative credit ledger, in atto. */
+export async function readTotalCredit(address: string, contract: string): Promise<bigint> {
+  const raw = await withChainRetry(async () => {
+    const client = await makeClient(address);
+    return (await client.readContract({
+      address: contract as `0x${string}`,
+      functionName: "get_total_credit",
+      args: [address],
+    })) as Record<string, unknown>;
+  });
+  return BigInt(String(raw.total_credit_atto ?? "0"));
+}
+
+/**
+ * get_global_stats() - GLOBAL aggregates across all players. Rendered only in a
+ * clearly-labelled campaign-wide spot, never inside a per-player or per-level view.
+ */
+export async function readGlobalStats(
+  address: string,
+  contract: string,
+): Promise<{ levelsCompleted: number; campaignPayoutAtto: bigint; totalCreditsAtto: bigint; houseBalanceAtto: bigint }> {
+  const raw = await withChainRetry(async () => {
+    const client = await makeClient(address);
+    return (await client.readContract({
+      address: contract as `0x${string}`,
+      functionName: "get_global_stats",
+      args: [],
+    })) as Record<string, unknown>;
+  });
+  return {
+    levelsCompleted: Number(raw.levels_completed ?? 0),
     campaignPayoutAtto: BigInt(String(raw.campaign_payout_atto ?? "0")),
+    totalCreditsAtto: BigInt(String(raw.total_credits_atto ?? "0")),
+    houseBalanceAtto: BigInt(String(raw.house_balance_atto ?? "0")),
   };
 }
 
 /**
  * get_credit(account) - the on-chain payout ledger for an address, in atto.
  * The contract also sends the GEN natively (emit_transfer); this ledger is a
- * per-account mirror of cumulative payouts the UI can cross-check against. This
- * view is non-consensus and safe for the UI to trust.
+ * per-account mirror of CUMULATIVE payouts the UI can cross-check against. It is
+ * NOT a per-level figure: never label it as one. This view is non-consensus and
+ * safe for the UI to trust.
  */
 export async function readGetCredit(address: string, contract: string): Promise<bigint> {
   const raw = await withChainRetry(async () => {
@@ -288,8 +357,15 @@ export interface CompleteLevelResult {
   /** Triggered transfer tx hash when the platform emits one (empty for the credit
    *  ledger path). */
   payoutTxHash?: string;
-  /** On-chain credit recorded for the player after a passing run, in atto. */
-  creditWei?: bigint;
+  /** PER-LEVEL payout from get_level_payout(account, level), in atto. Undefined when
+   *  the read failed; the caller must then fall back and label it approximate. */
+  levelPayoutWei?: bigint;
+  /** PER-PLAYER cumulative credit ledger after this run (get_total_credit), in atto.
+   *  NEVER display this as the payout of a single level. */
+  totalCreditWei?: bigint;
+  /** Wallet native GEN before / after the settlement, in wei (WALLET-NATIVE class). */
+  balanceBeforeWei?: bigint;
+  balanceAfterWei?: bigint;
 }
 
 /**
@@ -375,14 +451,22 @@ export async function writeCompleteLevel(
     }
 
     // The verdict settled as PASSED. The contract sends GEN natively via
-    // emit_transfer AND records the payout in get_credit. Confirm delivery
-    // against the wallet's real native balance delta so the UI never claims
-    // "sent" unless GEN actually landed.
-    let creditWei: bigint | undefined;
+    // emit_transfer AND records the payout in the credit ledger. Read the PER-LEVEL
+    // payout (get_level_payout) and the PER-PLAYER total (get_total_credit) as the
+    // two distinct classes they are, then confirm delivery against the wallet's
+    // real native balance delta so the UI never claims "sent" unless GEN actually
+    // landed and never shows a cumulative total as this level's prize.
+    let levelPayoutWei: bigint | undefined;
     try {
-      creditWei = await readGetCredit(address, contract);
+      levelPayoutWei = (await readLevelPayout(address, contract, level)).payoutAtto;
     } catch {
-      creditWei = undefined;
+      levelPayoutWei = undefined;
+    }
+    let totalCreditWei: bigint | undefined;
+    try {
+      totalCreditWei = await readTotalCredit(address, contract);
+    } catch {
+      totalCreditWei = undefined;
     }
 
     let payoutStatus: PayoutStatus = "credit";
@@ -400,27 +484,44 @@ export async function writeCompleteLevel(
     }
 
     // Prove native delivery: poll the wallet balance briefly and mark "sent" only
-    // when it actually increased. If the triggered tx looked sent but the balance
-    // never moved, downgrade to "pending" (honest, not a false claim).
+    // when it actually increased by the per-level payout. A delta that does not
+    // match the contract's per-level figure is reported as pending/credit, never
+    // as a successful delivery of an amount we cannot show.
+    let balanceAfterWei: bigint | undefined = balanceBeforeWei;
     if (balanceBeforeWei != null) {
-      let balanceAfterWei = balanceBeforeWei;
+      let after = balanceBeforeWei;
       for (let i = 0; i < 6; i++) {
         try {
-          balanceAfterWei = (await readGenBalance(address)).wei;
+          after = (await readGenBalance(address)).wei;
+          balanceAfterWei = after;
         } catch {
           /* balance read failed; keep last known */
         }
-        if (balanceAfterWei > balanceBeforeWei) break;
+        if (after > balanceBeforeWei) break;
         await new Promise((r) => setTimeout(r, 5000));
       }
-      if (balanceAfterWei > balanceBeforeWei) {
+      const delta = after - balanceBeforeWei;
+      if (levelPayoutWei != null && delta === levelPayoutWei) {
+        payoutStatus = "sent";
+      } else if (delta > 0n && levelPayoutWei == null) {
+        // Payout landed but the per-level view was unreadable: still delivered.
         payoutStatus = "sent";
       } else if (payoutStatus === "sent") {
         payoutStatus = "pending";
       }
     }
 
-    return { txHash, completed, timedOut: false, payoutStatus, payoutTxHash, creditWei };
+    return {
+      txHash,
+      completed,
+      timedOut: false,
+      payoutStatus,
+      payoutTxHash,
+      levelPayoutWei,
+      totalCreditWei,
+      balanceBeforeWei,
+      balanceAfterWei,
+    };
   } catch (err) {
     // Wallet rejection / revert / insufficient funds / network - never a silent throw.
     return { txHash, completed: false, timedOut: false, errorMessage: classifyWriteError(err), payoutStatus: "none" };

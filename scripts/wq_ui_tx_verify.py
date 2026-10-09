@@ -25,7 +25,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 load_dotenv(os.path.join(ROOT, ".env"))
 
 ADDR = os.environ.get(
-    "WQ_CONTRACT_ADDRESS", "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
+    "WQ_CONTRACT_ADDRESS", "0x8b317B94AF764e9de587805d264CbBea59Ce3aE2"
 )
 GEN = 10**18
 LEVEL_BASE_GEN = (0, 10, 12, 15, 20, 25, 30, 35, 50, 75, 100)

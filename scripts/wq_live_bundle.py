@@ -12,10 +12,12 @@ import urllib.request
 
 SITE = "https://hoveiser.github.io/weatherquest/"
 NEW = os.environ.get(
-    "WQ_CONTRACT_ADDRESS", "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
+    "WQ_CONTRACT_ADDRESS", "0x8b317B94AF764e9de587805d264CbBea59Ce3aE2"
 )
 # Every prior deployment must be ABSENT from the published bundle.
 OLD_ADDRESSES = [
+    # the reviewer-fix redeploy that the layered-verification build replaced
+    "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3",
     "0x599EA254e19f7427Db0B158123ED1A21f28538fe",
     "0x2d764187A908d1677510c5E7FE69e8e7C1810299",
     "0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72",

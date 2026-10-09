@@ -24,7 +24,7 @@ from eth_account import Account
 from genlayer_py import create_client, studionet
 
 ADDR = os.environ.get(
-    "WQ_CONTRACT_ADDRESS", "0x6028EB222937cd0Bd881c85260E1e0F11330a0A3"
+    "WQ_CONTRACT_ADDRESS", "0x8b317B94AF764e9de587805d264CbBea59Ce3aE2"
 )
 GEN = 10**18
 DEADLINE = 300  # 5 min per tx (rule 5)

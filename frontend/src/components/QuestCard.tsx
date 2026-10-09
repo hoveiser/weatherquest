@@ -40,7 +40,7 @@ export default function QuestCard({ quest, onOpen }: Props) {
       whileHover={{ y: -4 }}
       whileTap={{ scale: 0.99 }}
       className="card group relative flex w-full flex-col overflow-hidden p-5 text-left"
-      aria-label={`Quest in ${quest.city}, ${formatGen(quest.baseRewardGen)} base reward. Open details.`}
+      aria-label={`Demo quest in ${quest.city}, ${formatGen(quest.baseRewardGen)} demo base reward, not payable. Open details.`}
     >
       {theme && (
         <div
@@ -93,7 +93,11 @@ export default function QuestCard({ quest, onOpen }: Props) {
 
       <div className="relative z-10 mt-5 flex items-center justify-between">
         <div className="flex flex-col gap-1">
-          <span className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+          <span
+            className="flex items-center gap-1.5 text-sm font-semibold text-ink"
+            title="Demo bounty escrow is disabled on this deployment, so this GEN figure is a simulation and is not payable"
+            data-testid="demo-base-reward"
+          >
             <Coins size={15} className="text-warning" aria-hidden />
             {formatGen(quest.baseRewardGen)}
           </span>

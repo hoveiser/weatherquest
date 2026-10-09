@@ -6,7 +6,7 @@
 // landed. Both hashes render as full explorer links (shortened for layout only)
 // with the full hash in the href and title, plus a Copy button.
 import { useState } from "react";
-import { explorerTxUrl, type PayoutStatus } from "../lib/genlayer";
+import { explorerTxUrl } from "../lib/genlayer";
 
 function shortHash(hash: string): string {
   return hash.length >= 20 ? `${hash.slice(0, 10)}…${hash.slice(-6)}` : hash;
@@ -57,23 +57,7 @@ export function HashLink({ hash, label, testId }: HashLinkProps) {
   );
 }
 
-/** Human-readable payout state, kept separate from the settlement verdict. */
-export function payoutStatusText(status?: PayoutStatus, creditGen?: number): string {
-  switch (status) {
-    case "sent":
-      return creditGen != null && creditGen > 0
-        ? `Payout: ${creditGen.toFixed(4)} GEN received in your wallet`
-        : "Payout: sent to wallet (native GEN received)";
-    case "failed":
-      return "Payout: failed (transfer tx did not settle)";
-    case "pending":
-      return "Payout: pending (transfer tx not finalized yet)";
-    case "credit":
-      return creditGen != null && creditGen > 0
-        ? `Payout: ${creditGen.toFixed(4)} GEN recorded on-chain (native transfer awaiting confirmation)`
-        : "Payout: recorded on-chain, awaiting native transfer";
-    case "none":
-    default:
-      return "Payout: none";
-  }
-}
+/** Human-readable payout state lives in lib/payout.ts (payoutStatusLabel), which
+ *  phrases every amount as the PER-LEVEL payout. It is deliberately not duplicated
+ *  here: two implementations of that label is how a cumulative credit once ended
+ *  up being displayed as a single level's prize. */

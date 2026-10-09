@@ -17,7 +17,7 @@ just that the JSON was well-formed. The game frontend is the player-facing skin 
 | Step | Who owns it | What happens |
 |------|-------------|--------------|
 | 1. Post a bounty | **Contract** | Creator locks `base_reward` GEN in escrow with a city + expiry window. |
-| 2. Weather sets risk | **Contract + Open-Meteo + LLM** | Consensus validators fetch live weather and derive a **1.0x–5.0x multiplier** and a **risk tier** (Low / Medium / High / Extreme). |
+| 2. Weather sets risk | **Contract + Open-Meteo + LLM** | Consensus validators fetch live weather and derive a **1.0x-5.0x multiplier** and a **risk tier** (Low / Medium / High / Extreme). |
 | 3. Player submits an action | **Contract + LLM** | The AI judges whether the action is *safe given the current risk tier*. Cautious moves in Extreme weather can still succeed; reckless ones fail. |
 | 4. Settlement | **Contract** | On success → payout = `base_reward × multiplier`. On failure → base reward refunded to creator. |
 
@@ -109,8 +109,8 @@ Pinned runner: `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6
 **Validation rules (all raise classified `[EXPECTED]` errors):**
 
 - City: non-empty, ≤ 100 chars.
-- `base_reward`: 1 – 1000 GEN (atto-scaled `u256`); sent value must equal it exactly.
-- `expiry_hours`: 1 – 168 (≤ 7 days).
+- `base_reward`: 1 - 1000 GEN (atto-scaled `u256`); sent value must equal it exactly.
+- `expiry_hours`: 1 - 168 (≤ 7 days).
 - Description ≤ 500 chars; Action ≤ 200 chars, non-empty.
 - Quest must exist, be `Active`, not expired; one submission per address per quest.
 
@@ -168,8 +168,8 @@ loaded lazily and code-split out of the demo bundle).
 
 The direct-mode suite runs on any machine that can reach PyPI + the pinned GenVM
 runner (the test SDK auto-downloads the runner into `~/.cache/gltest-direct/`).
-It was executed end-to-end and **all 114 tests pass** (72 in `test_validator_logic.py`
-pure-helper tests + 42 in `test_weatherquest.py`). On Windows the pinned `gltest`
+It was executed end-to-end and **all 238 tests pass** (177 in `test_validator_logic.py`
+pure-helper tests + 61 in `test_weatherquest.py`). On Windows the pinned `gltest`
 direct loader raises `PermissionError` because it unlinks its temp file while fd 0
 still holds it; a Windows-only `os.unlink` tolerance shim in `tests/direct/conftest.py`
 (guarded by `sys.platform == "win32"`) lets `pytest tests/direct/` run locally, and
@@ -195,7 +195,41 @@ Expected result:
 
 ```
 ....................................                          [100%]
-114 passed
+238 passed
+```
+
+### Frontend tests and build
+
+```bash
+# from frontend/: fast, no browser needed
+cd frontend
+npm test        # 21 node:test cases: 10 risk-band parity + 11 payout display helpers
+npm run lint    # tsc --noEmit (exit 0)
+npm run build   # tsc + vite build; set VITE_CONTRACT_ADDRESS first or the bundle
+                # builds without an address and the site runs demo mode
+```
+
+### On-chain verification harnesses (real StudioNet, spend real GEN)
+
+These are the scripts behind §12's measured claims. Each submits one transaction per
+printed line, polls with a 5-minute cap, and appends its record before starting the next
+transaction, so an interrupted run resumes rather than restarts. They read the deployer key
+only from this project's `.env` and never print it; every player account they use is a
+throwaway generated in memory and funded with 1 GEN.
+
+```bash
+python scripts/wq_adversarial_corpus.py attacks   # every attack, 2 passes, fresh wallet each
+python scripts/wq_adversarial_corpus.py legit     # every legitimate action, fresh wallets
+python scripts/wq_adversarial_corpus.py all       # both, then the same-account recovery check
+python scripts/wq_adversarial_corpus.py report    # rebuild docs/adversarial-table.txt from the records
+python scripts/wq_corpus_ledger_audit.py          # current on-chain state of every corpus wallet
+python scripts/wq_levels_verify.py                # re-verify the level 1-3 settlement txs app-free
+python scripts/wq_c4_verify.py                    # re-verify the live-UI ladder txs app-free
+python scripts/wq_secret_scan.py                  # credentials + dash scan (exit 0 = clean)
+
+# the live-UI proofs (need `npm run build` in frontend/ and `npm run preview` on :4173):
+node tools/pwtest/levels_payout.mjs               # per-level vs cumulative money surfaces
+pwsh scripts/run_c4_ui.ps1                        # the rejection ladder in the real UI
 ```
 
 > **China / restricted networks?** If `pypi.org` is unreachable, add a mirror:
@@ -258,25 +292,41 @@ because image-generation/Pillow were unavailable in the build sandbox.
 
 ## 10. Deployment
 
-- **Contract -> GenLayer StudioNet: DEPLOYED (reviewer-fix redeploy).**
-  ### `0x6028EB222937cd0Bd881c85260E1e0F11330a0A3`
-  (deploy tx `0xfa180c4018e3c2b28206e4a349422cb8ac91a0c8c854d43040684bbd1ab84cac`,
-  `FINALIZED` / `MAJORITY_AGREE` / exec `SUCCESS`; funded 30 GEN via tx
-  `0x5aa7266a6529ac334ddec06e1d66025e8d67e65d6901374184e8f55249479ce`). Payouts reach the player's
-  wallet as real native GEN via a `@gl.evm.contract_interface` `emit_transfer` and are mirrored in
-  the per-address `get_credit` ledger. This version removes caller-controlled navigation step
-  counts from the reward path entirely (per reviewer request): `complete_level` is now
-  `(level, city, action)`, there is no efficiency multiplier, and
-  `payout = base(level) * weather_multiplier_x100 // 100` (all integer). Every level 1-10 must
-  pass the exact fixed campaign city (level 1 is Istanbul at geocoder-verified integer coords), so
-  a caller cannot substitute the stormiest city to boost the multiplier; the free-form geocode path
-  is gone from `complete_level`. The marketplace escrow (`create_quest`) is DISABLED on this
-  deployment: it locks real GEN but had no withdrawal path, so `create_quest` reverts with an
-  `[EXPECTED]` message (the frontend never used the on-chain escrow). The weather multiplier stays
-  deterministic integer math, validators compare tier/multiplier/success EXACTLY, and the max-payout
-  pre-check is `base * 5`. The house is funded with 30+ GEN. See §12c for the on-chain round on this
-  contract.
-  Previous deployments (efficiency bonus and free-form level-1 still present, superseded by the fix
+- **Contract -> GenLayer StudioNet: DEPLOYED (layered-verification redeploy).**
+  ### `0x8b317B94AF764e9de587805d264CbBea59Ce3aE2`
+  (deploy tx `0x46acbc553f73b45e4b87e74d6fa15964d93cc434319117954f516d6abc48dedb`, `FINALIZED` /
+  `MAJORITY_AGREE` / exec `SUCCESS`, 48.5 s to finalization; funded 30 GEN via tx
+  `0x0056cd40f72a7297021ba94e3ebeb69ad0949e94421e5eb1950c99a30423b3a6`, `FINALIZED` /
+  `MAJORITY_AGREE`, house native balance read back independently as 30.0000 GEN). Evidence:
+  `docs/deploy_new.json`.
+
+  This is the version the reviewer asked for after a prompt-injection submission was paid 0.1 GEN.
+  Action verification is now three layers instead of one model verdict. A deterministic pre-filter
+  (`_prefilter_action`: control and invisible characters, printable-ASCII-only, blocked injection
+  characters, 12..200 length, at least 3 word tokens, repeated-character padding, and a normalized
+  letters-only instruction blocklist) runs BEFORE any network or LLM work and reverts with
+  `[EXPECTED]`. The model then returns a strict rubric
+  (`{"on_topic","concrete_action","manipulation","safe"}`) and the contract derives
+  `success = on_topic and concrete_action and (not manipulation) and safe`, ignoring every other key
+  including any model-supplied `success`; a missing or malformed rubric fails closed with
+  `[LLM_ERROR]`. An on-chain `LEVEL_OBJECTIVE` table (byte-identical to `frontend/src/lib/maps.ts`)
+  makes off-topic text and gibberish fail on every tier, Low included, and the prompt puts trusted
+  instructions and the rubric first with the untrusted action fenced inside `[ACTION]` markers whose
+  brackets the pre-filter already forbids.
+  Payout reporting is now unambiguous: `get_level_payout(account, level)` returns the exact payout for
+  ONE completed level, `get_total_credit(account)` is the per-player cumulative ledger,
+  `get_global_stats()` holds the contract-wide counters, and `campaign_progress` no longer returns a
+  global counter inside a per-player structure. Payouts still reach the wallet as real native GEN via
+  `@gl.evm.contract_interface` `emit_transfer`, `payout = base(level) * multiplier_x100 // 100` stays
+  integer, every level 1-10 must pass its fixed campaign city, the marketplace escrow (`create_quest`)
+  stays DISABLED, and validators compare tier/multiplier/derived success EXACTLY. See §12d for the
+  adversarial round on this contract.
+  Previous deployments: `0x6028EB222937cd0Bd881c85260E1e0F11330a0A3` (the first reviewer-fix redeploy,
+  which removed the caller-controlled step counts but still judged actions through a single free-form
+  verdict and exposed only a cumulative credit; deploy tx
+  `0xfa180c4018e3c2b28206e4a349422cb8ac91a0c8c854d43040684bbd1ab84cac`, funded 30 GEN via tx
+  `0x5aa7266a6529ac334ddec06e1d66025e8d67e65d6901374184e8f55249479ce`; its house still holds 24.72 GEN
+  that cannot be recovered, see §11). Before those (efficiency bonus and free-form level-1 still present, superseded by the fix
   above): `0x599EA254e19f7427Db0B158123ED1A21f28538fe` (native-GEN payout redeploy),
   `0x2d764187A908d1677510c5E7FE69e8e7C1810299` (credit-ledger stopgap),
   `0x8fc4bc489C30666D6cF846DB63aAEaDfD8475A72` (validator-consensus redeploy whose
@@ -286,7 +336,7 @@ because image-generation/Pillow were unavailable in the build sandbox.
 - **Frontend -> GitHub Pages:** `frontend/dist` via the `.github/workflows/deploy-frontend.yml`
   workflow. Live at https://hoveiser.github.io/weatherquest/ (verified with Playwright + chromium).
 
-To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x6028EB222937cd0Bd881c85260E1e0F11330a0A3`
+To point the game at the live contract, set `VITE_CONTRACT_ADDRESS=0x8b317B94AF764e9de587805d264CbBea59Ce3aE2`
 and `VITE_ONCHAIN=true` in `frontend/.env` (see §6). For the campaign path the Pages build bakes only
 `VITE_CONTRACT_ADDRESS` (see `.github/workflows/deploy-frontend.yml`); `VITE_ONCHAIN` is intentionally left
 off so the marketplace flows don't attempt unfunded on-chain escrow.
@@ -296,6 +346,13 @@ See `SUBMISSION.md` for the fill-in submission fields and the verification outco
 
 ## 11. Known limitations
 
+- **House funds cannot be recovered or reused across deployments.** `deposit()` is payable but there is
+  no `withdraw`, so a redeploy orphans whatever GEN the old house still holds: the superseded
+  `0x6028EB22...` deployment was measured holding 24.72 GEN after this redeploy and that GEN is not
+  reachable by anyone, including the deployer. Each new version therefore needs fresh testnet GEN
+  (faucet-funded). Adding an owner-only withdrawal is deliberately out of scope for this round: it
+  would put a new caller-controlled path next to the money logic during the adversarial testing, and
+  it can only ever reduce the house balance, never scale a payout.
 - **Demo mode ships on by default** so the full 10-level campaign is playable with no funded
   wallet (progress persists in `localStorage`). A **"Connect GenLayer Wallet"** button switches
   the same call sites to **real on-chain play** through the official `genlayer-js` SDK
@@ -309,10 +366,12 @@ See `SUBMISSION.md` for the fill-in submission fields and the verification outco
   contract's integer bands (`_snap_from_raw`, `_code_class`, `_risk_from_snapshot`), and the preview
   GEN amount uses the same `base(level) * multiplier_x100 / 100` formula (no step/efficiency term).
   The same boundary table used by the Python tests is unit-tested in
-  `frontend/tests/risk.test.mjs` (10/10 pass with the bundled Node), so the displayed tier, multiplier
-  and GEN for a given weather snapshot match the contract. The live-site screenshot confirming the
-  Istanbul preview equals the on-chain payout for the same run is captured after the Pages deploy
-  (see the live-UI proof bullet in §12c).
+  `frontend/tests/risk.test.mjs` (10/10 pass with the bundled Node), and the money strings shown on
+  the settlement screen are unit-tested in `frontend/tests/payout.test.mjs` (11/11 pass, covering
+  `lib/payout.ts`: per-level vs cumulative vs global classification and the `base * x100 / 100`
+  identity), so the displayed tier, multiplier and GEN for a given weather snapshot match the
+  contract. The live-site screenshot confirming the Istanbul preview equals the on-chain payout for
+  the same run is captured after the Pages deploy (see the live-UI proof bullets in §12c and §12d).
 - **StudioNet DOES credit recipient EOA native balances for the campaign payout.** An earlier
   conclusion that it could not was WRONG and is corrected here: the blocker was the API, not
   the network. `gl.get_contract_at(eoa).emit_transfer(...)` sends an internal IC->IC message
@@ -331,9 +390,93 @@ See `SUBMISSION.md` for the fill-in submission fields and the verification outco
 
 ## 12. On-chain verification rounds (real StudioNet)
 
-### 12c. Reviewer-fix round (current contract `0x6028EB22...`)
+### 12d. Layered-verification round (current contract `0x8b317B94...`)
 
-Run by `scripts/wq_round.py` against the current contract
+Three separate passes against the deployed contract, all recorded per transaction.
+
+**(1) Adversarial corpus.** `tests/adversarial_corpus.json` holds 34 attack strings
+across 18 classes (each with an `id`, a `class` and the layer expected to stop it) and 12
+legitimate actions. `python scripts/wq_adversarial_corpus.py all` runs every attack twice,
+once per fresh throwaway wallet (`0xF2176246...` then `0x6fD58065...`, each funded 1 GEN),
+then asks each of those same wallets to play legitimately, then runs all 12 legitimate
+actions on fresh wallets. 85 records: `docs/adversarial_results.json`, the full consensus
+dump of every tx in `docs/adversarial_raw/`, the rendered table and totals in
+`docs/adversarial-table.txt`, the machine totals in `docs/adversarial_summary.json`.
+
+- **68 attack runs, 0 paid, 0 levels conquered.** 42 were stopped by the deterministic
+  layer-1 pre-filter (leader execution `ERROR` + rollback carrying the `[EXPECTED]` revert
+  text, so no LLM was consulted and no network work was done) and 26 reached the AI rubric
+  and were refused there (`success` derived to 0). No class paid in either pass.
+- **Consensus stayed clean:** all 85 txs `FINALIZED` / `MAJORITY_AGREE` with 5 validator
+  votes, no `NO_MAJORITY`, no validator timeout, no undetermined. 81 of the 82 corpus txs
+  settled in a single round; **one did not**: `p1.a32` (the reckless-action string "run into
+  the open field holding a long metal pole during the storm", Moscow) needed 4 rounds and
+  44.9 s before the validators agreed. It still refused the payout with `safe=0 ->
+  success=0`, and the same string in pass 2 settled in 1 round, so this is the known cost of
+  an LLM-judged write (validators can disagree on the model's answer and rotate), not a
+  reward-path defect. It is printed in the table rather than summarised away.
+- **Time to `ACCEPTED` over 82 txs: min 1.2 s, median 23.9 s, max 48.3 s.** The sub-5 s
+  cases are pre-filter reverts whose status was already `ACCEPTED` at the first poll;
+  everything on the LLM path clusters at 22-37 s, in line with the ~22 s the earlier rounds
+  measured, so the extra verification layer did not move the settlement time.
+- **Rejection does not lock an account out.** Both attack wallets were then asked to play
+  legitimately and both were paid exactly `base(1) * 100 / 100` = 0.1 GEN with level 1 marked
+  conquered (`p1.legit_after`, `p2.legit_after`).
+- **The 12 legitimate controls (`legit.l01..l12`, levels 1-10) all passed and each paid
+  exactly `base(level) * multiplier / 100`**: 0.10, 0.10, 0.12, 0.12, 0.225, 0.26, 0.30,
+  0.30, 0.35, 0.60, 0.75, 1.20 GEN. The multiplier used in that check is the one the contract
+  itself logged in its leader receipt (`multiplier$1.50`, `risk_tier4Medium`, ...), read back
+  out of the base64 msgpack payload, not a number the harness assumed; all 12 of those
+  recorded multipliers reproduce the measured credit delta exactly.
+- **Honest anomaly, recorded rather than hidden:** `p2.legit_after`'s stored hash is the
+  fourth submission of that action. Its first three client POSTs died with a TLS error
+  *after* the network had already accepted them, so an earlier copy paid and the recorded
+  copy hit the replay guard (`[EXPECTED] Level already completed`). The wallet's own state is
+  unambiguous (credit 0.1 GEN, level 1 conquered exactly once, native = 1 GEN funding + 0.1),
+  which is why pass (2) below audits the chain's current state instead of trusting which hash
+  a record happens to carry. StudioNet exposes no per-tx receipt history (`eth_getBalance`
+  ignores block tags), so no per-tx balance claim is made anywhere in this round.
+
+**(2) End-state ledger audit.** `python scripts/wq_corpus_ledger_audit.py` reads the chain
+as it is now for all 11 wallets the corpus used (`docs/corpus-ledger-audit.txt`,
+`docs/corpus-ledger-audit.json`). For every wallet: `get_total_credit` equals the sum of the
+credit deltas that wallet's records observed, the legacy `get_credit` equals it, the per-player
+`campaign_progress` total equals it, and `eth_getBalance` equals the 1 GEN the throwaway was
+funded with plus that same total - so no wallet holds GEN the ledger cannot account for. The 7
+wallets that only ever submitted attacks hold 0 credit and have conquered nothing. Total
+credited across every corpus wallet: 4.625 GEN, all of it from the 14 legitimate controls.
+`VERDICT: PASS`. (Writing this audit also surfaced a stale field read in
+`scripts/wq_round.py::campaign_payout`, which had been silently reading a contract-wide key that
+`campaign_progress` no longer returns; no recorded claim depended on it, and it now reads the
+per-player field.)
+
+**(3) Live-UI rejection ladder.** `WQ_UI_MODE=injection` on the same Playwright harness
+(`scripts/run_c4_ui.ps1`) types three rejections and then a legitimate action into the real
+action input of the production build (`npm run build` with `VITE_CONTRACT_ADDRESS` set to this
+deployment, served by `npm run preview` on :4173; rebuilding with the same inputs produced the
+identical app chunk `index-DkkQx3RP.js` that the earlier live-UI rounds used) with one fresh
+wallet (`0xd43a94fa...`), and
+`scripts/wq_c4_verify.py` re-verifies those four txs app-free. Result: 3 explicit rejections,
+each with no per-level payout line, no settlement-proof block, no GEN figure anywhere in the
+verdict box and a node-measured native delta of exactly 0, then the legitimate action paying
+`≈0.1000 GEN (Level 1 payout only · × 1.0 risk multiplier)` == measured delta ==
+`base * mult // 100`. `all_cases_ok: true`, 0 console errors, 0 bridge errors
+(`docs/c4-ui-report.json`, `docs/c4-ui-run.txt`, 8 screenshots `docs/c4-*-1-input.png` /
+`docs/c4-*-2-verdict.png`); SDK side `VERDICT: PASS` (`docs/c4-sdk-verify.json`,
+`docs/c4-sdk-verify.txt`). The published Pages bundle is checked separately by
+`python scripts/wq_live_bundle.py`, which crawls the live site and asserts this address is present
+and every previous deployment is absent (`docs/live-bundle-prepush.txt` records the pre-push state:
+the site still served the superseded `0x6028EB22...` build, which is what the next CI run
+replaces). One wording imprecision is worth knowing before you read a
+screenshot: a deterministic layer-1 revert and an AI-rubric failure render with the same
+`❌ Quest Failed · the AI judgment failed Level N` heading, because StudioNet's outer receipt
+carries `status 0x1` for a reverted contract call so the app's "Action rejected by ... contract
+logic" classifier never fires. Nothing is paid or charged in either case and the layer that
+refused it is unambiguous on-chain in the leader receipt.
+
+### 12c. Reviewer-fix round (previous contract `0x6028EB22...`, superseded)
+
+Run by `scripts/wq_round.py` against the then-current contract
 `0x6028EB222937cd0Bd881c85260E1e0F11330a0A3` (deploy tx `0xfa180c40…b84cac`, funded 30 GEN via
 `0x5aa7266a…479ce`). This is the version with the efficiency/step-count reward term removed and
 the fixed level-1 city. Per-case records: `docs/round_results.json` (cases `lvl1_*`, `tbl_L*`,
@@ -533,7 +676,9 @@ After the reviewer fix, the only inputs to a campaign payout are `level` and `ci
 - the weather multiplier is derived on-chain from the fixed integer coordinates for that level,
   byte-identical for every validator, never from any client value.
 - `action` text is judged by the single LLM call to a boolean success/fail only; it never scales the
-  amount.
+  amount. Since the layered-verification redeploy the caller's text cannot even reach that verdict
+  unfiltered: `_prefilter_action` reverts deterministic attacks before any network or LLM work, the
+  model's own `success` key is ignored, and `success` is derived on-chain from the four rubric fields.
 - `base(level)` is a fixed per-level constant.
 
 Remaining observations (documented, not changed):
@@ -544,8 +689,15 @@ Remaining observations (documented, not changed):
 - **Open per-wallet farming.** Identity is the connected wallet and StudioNet is gasless, so an
   operator can create throwaway wallets and claim each level once per wallet. The per-wallet total
   is bounded by the campaign sum and no single credit can be inflated; inherent to an open airdrop.
-- **The action judgment is not injection-proof.** The §12c injection case shows the LLM can be nudged
-  to return `success=true`. This affects WHETHER a level pays, never HOW MUCH (the amount stays
-  `base * weather`), so it does not reintroduce caller-controlled reward scaling.
+- **The action judgment is probabilistic, not injection-proof.** The §12c injection case (previous
+  deployment `0x6028EB22...`, tx `0x2ee4ec3a…`) is history: that verdict came from a single boolean
+  the model returned directly. The layered-verification redeploy addresses it - a deterministic
+  pre-filter, a rubric whose `success` the contract derives, per-level objectives in the prompt - and
+  the measured result on that deployment is 68 attack runs across 18 classes with **0 payouts** (§12d,
+  `docs/adversarial-table.txt`). A zero-rate over 68 runs is not a proof of impossibility: the rubric
+  layer still ends in an LLM answer, so a novel phrasing could in principle be judged on-topic,
+  concrete and safe. What is structurally impossible is the second half of the original finding: no
+  wording can change HOW MUCH pays (`base(level) * weather / 100`, all fixed on-chain), and no
+  model-supplied `success` key can buy a payout.
 - `get_weather_multiplier(city)` stays a free-form non-payout preview helper; its result is
   informational and is recomputed on-chain for any actual payout.

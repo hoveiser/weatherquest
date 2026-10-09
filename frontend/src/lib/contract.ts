@@ -8,7 +8,8 @@ import type {
 } from "../types";
 import { getWeatherByCity, previewRisk } from "./weather";
 import { genToAtto, attoToGen } from "./format";
-import { cityForLevel, difficultyBand, LEVEL_BASE_GEN, payoutGenExact } from "./maps";
+import { cityForLevel, difficultyBand, LEVEL_BASE_GEN, objectiveForLevel, payoutGenExact, CAMPAIGN_REWARD_SCALE } from "./maps";
+import { deltaMatchesPayout, payoutAttoExact } from "./payout";
 import * as gl from "./genlayer";
 
 /**
@@ -142,7 +143,9 @@ export async function fetchCampaignProgress(wallet: WalletState): Promise<Campai
     completedCount: completed.length,
     nextLevel: next,
     maxLevel: 10,
-    campaignPayoutAtto: 0n,
+    // Demo has no on-chain ledger: a zero total is the honest value, never a
+    // simulated one (the UI only renders this line in on-chain mode).
+    totalCreditAtto: 0n,
   };
 }
 
@@ -193,6 +196,8 @@ async function completeLevelDemo(
       level,
       success: true,
       payoutGen: 0,
+      levelPayoutGen: 0,
+      objective: objectiveForLevel(level),
       risk,
       reasoning: `Level ${level} (${city}) is already conquered - the gate stands open. Walk on through.`,
       difficulty,
@@ -250,6 +255,10 @@ async function completeLevelDemo(
     level,
     success,
     payoutGen,
+    // Demo mirrors the contract classes locally: the per-level amount only (there is
+    // no on-chain cumulative ledger in demo, and none is faked here).
+    levelPayoutGen: payoutGen,
+    objective: objectiveForLevel(level),
     risk,
     reasoning: verdict,
     difficulty,
@@ -276,20 +285,33 @@ async function completeLevelOnChain(
   // error) is surfaced verbatim so the UI never shows a misleading generic AI verdict.
   const errorMessage = res.errorMessage;
   const success = !timedOut && !errorMessage && res.completed;
-  // Prefer the real on-chain credit (the contract's per-account get_credit delta)
-  // so the displayed payout is exactly what was paid; fall back to the same
-  // integer formula the contract uses when the credit read is unavailable.
-  const payoutGen = success
-    ? res.creditWei != null
-      ? Number(res.creditWei) / 1e18
-      : payoutGenExact(level, risk.multiplierX100)
-    : 0;
+  // PER-LEVEL payout: the contract's own get_level_payout(account, level) is the only
+  // authoritative answer for "what did THIS level pay". The cumulative credit ledger
+  // is a different class and must never be shown in its place (that misreporting was
+  // the reviewer finding). If the per-level view is unreadable we fall back to the
+  // contract's own integer formula with the preview multiplier and mark it approximate.
+  const expectedAtto = payoutAttoExact(LEVEL_BASE_GEN[level] ?? 0, CAMPAIGN_REWARD_SCALE, risk.multiplierX100);
+  const levelPayoutAtto = success ? res.levelPayoutWei ?? expectedAtto : 0n;
+  const totalCreditAtto = success ? res.totalCreditWei ?? 0n : 0n;
+  const beforeAtto = res.balanceBeforeWei;
+  const afterAtto = res.balanceAfterWei;
   return {
     level,
     success,
     timedOut,
     errorMessage,
-    payoutGen,
+    payoutGen: success ? attoToGen(levelPayoutAtto) : 0,
+    levelPayoutGen: success ? attoToGen(levelPayoutAtto) : 0,
+    levelPayoutAtto,
+    totalCreditGen: success ? attoToGen(totalCreditAtto) : 0,
+    totalCreditAtto,
+    nativeBeforeGen: beforeAtto != null ? attoToGen(beforeAtto) : undefined,
+    nativeAfterGen: afterAtto != null ? attoToGen(afterAtto) : undefined,
+    nativeBeforeAtto: beforeAtto,
+    nativeAfterAtto: afterAtto,
+    nativeDeltaMatches:
+      success && deltaMatchesPayout(beforeAtto, afterAtto, levelPayoutAtto),
+    objective: objectiveForLevel(level),
     risk,
     reasoning: timedOut
       ? `⏳ StudioNet validators are congested. Transaction may finalize later - nothing was charged and ${city} was not marked conquered. Try again shortly, or keep playing in demo mode.`
@@ -304,7 +326,6 @@ async function completeLevelOnChain(
     txHash: res.txHash,
     payoutStatus: res.payoutStatus,
     payoutTxHash: res.payoutTxHash,
-    creditGen: res.creditWei != null ? Number(res.creditWei) / 1e18 : undefined,
   };
 }
 

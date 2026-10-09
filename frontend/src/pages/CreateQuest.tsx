@@ -97,7 +97,8 @@ export default function CreateQuest() {
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="text-2xl font-extrabold text-ink sm:text-3xl">Create a Bounty</h1>
       <p className="mt-1 text-sm text-muted">
-        Fund a quest with GEN. The payout scales with live weather risk when an action is judged.
+        Bounty escrow is disabled on this deployment, so this form is a design preview.
+        The 10-level campaign is what settles GEN on StudioNet.
       </p>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -153,11 +154,12 @@ export default function CreateQuest() {
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
             <Button onClick={onSubmit} loading={submitting} disabled={touched && !valid}>
-              {state.address ? "Fund & Create Quest" : "Connect Wallet to Create"}
+              {state.address ? "Create Local Demo Quest" : "Connect Wallet to Create"}
             </Button>
             <p className="flex items-center gap-1.5 text-xs text-muted">
               <ShieldAlert size={14} className="text-warning" aria-hidden />
-              Rewards are escrowed on-chain and refunded if no valid action completes.
+              No GEN leaves your wallet: the contract rejects create_quest on this
+              deployment, so nothing is escrowed and nothing is refunded.
             </p>
           </div>
         </div>
@@ -185,7 +187,7 @@ export default function CreateQuest() {
                 </div>
                 <RiskMeter multiplier={risk.multiplier} tier={risk.risk_tier} />
                 <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
-                  <span className="text-muted">Projected max payout</span>
+                  <span className="text-muted">Demo projection (not payable)</span>
                   <span className="flex items-center gap-1.5 font-extrabold text-success">
                     <Check size={15} aria-hidden /> {formatGen(projected)}
                   </span>

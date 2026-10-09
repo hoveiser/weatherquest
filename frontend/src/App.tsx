@@ -11,11 +11,13 @@ import {
   completeLevel,
   connectOnChainWallet,
   connectWallet,
+  fetchCampaignProgress,
   fetchCompletedLevels,
   fetchGenBalance,
 } from "./lib/contract";
 import { fetchIPLocation, FALLBACK_LOCATION } from "./lib/geolocation";
 import { MAX_LEVEL, cityForLevel, computeOptimalSteps } from "./lib/maps";
+import { formatAtto } from "./lib/payout";
 import type { LevelOutcome, RiskAnalysis, WalletState, WeatherSnapshot } from "./types";
 
 const START_BALANCE = 25;
@@ -108,6 +110,10 @@ type Phase = "menu" | "playing";
  * - Walking a level: touch the closed Magic Gate → AI gate challenge (complete_level)
  *   → on success the gate opens → reach the ★ victory zone → "Level Up!" auto-advance.
  * - HUD shows wallet (Demo Mode or connected GenLayer address), level, city, GEN balance.
+ * - The menu bar separates the two money classes the reviewer asked about: the
+ *   wallet's native GEN and the PER-PLAYER cumulative credit ("total credited to
+ *   your address", all levels). A single level's payout is only ever shown in the
+ *   settlement modal, from the contract's get_level_payout.
  * The GenLayer contract owns all authoritative weather-judgment + reward logic (125 tests).
  */
 export default function App() {
@@ -116,6 +122,8 @@ export default function App() {
   const [homeCity, setHomeCity] = useState<string>(FALLBACK_LOCATION.city);
   const [completed, setCompleted] = useState<number[]>([]);
   const [balance, setBalance] = useState(START_BALANCE);
+  // PER-PLAYER cumulative credit from the on-chain ledger (null = not read / demo).
+  const [totalCreditAtto, setTotalCreditAtto] = useState<bigint | null>(null);
   const displayBalance = useCountUp(balance);
 
   const [currentLevel, setCurrentLevel] = useState(1);
@@ -147,6 +155,21 @@ export default function App() {
   const city = cityForLevel(currentLevel, homeCity);
   const nextLevel = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find((l) => !completed.includes(l)) ?? 0;
 
+  // Re-read the PER-PLAYER cumulative credit ledger (all levels combined). Declared
+  // before the boot effect so the first render already pulls it once.
+  const refreshTotalCredit = useCallback(async (w: WalletState) => {
+    if (w.mode !== "onchain") {
+      setTotalCreditAtto(null);
+      return;
+    }
+    try {
+      const p = await fetchCampaignProgress(w);
+      setTotalCreditAtto(p.totalCreditAtto);
+    } catch {
+      setTotalCreditAtto(null);
+    }
+  }, []);
+
   // --- Boot: demo wallet + IP city + saved progress ------------------------
   useEffect(() => {
     let alive = true;
@@ -160,11 +183,12 @@ export default function App() {
       setCompleted(done);
       const start = w.mode === "onchain" ? await fetchGenBalance(w) : null;
       if (alive && start != null) setBalance(start);
+      if (alive) void refreshTotalCredit(w);
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [refreshTotalCredit]);
 
   // --- Live weather for the active level's city ----------------------------
   useEffect(() => {
@@ -271,6 +295,7 @@ export default function App() {
         void (async () => {
           const bal = await fetchGenBalance(wallet);
           if (bal != null) setBalance(bal);
+          await refreshTotalCredit(wallet);
         })();
       }
       fireConfetti();
@@ -278,7 +303,7 @@ export default function App() {
     } else {
       passedRef.current = false;
     }
-  }, [wallet]);
+  }, [wallet, refreshTotalCredit]);
 
   // Closing the modal: if the challenge passed, unlock the gate and resume.
   const handleModalClose = useCallback(() => {
@@ -312,18 +337,20 @@ export default function App() {
       const [done, bal] = await Promise.all([fetchCompletedLevels(w), fetchGenBalance(w)]);
       setCompleted(done);
       if (bal != null) setBalance(bal);
+      void refreshTotalCredit(w);
       setBanner(`⛓ Connected ${w.address.slice(0, 6)}…${w.address.slice(-4)} - playing on-chain.`);
     } catch (e) {
       setWallet((w) => ({ ...w, connecting: false }));
       setBanner(e instanceof Error ? `⚠ ${e.message}` : "Wallet connection failed.");
     }
-  }, []);
+  }, [refreshTotalCredit]);
 
   const handleDisconnect = useCallback(async () => {
     const w = await connectWallet();
     setWallet(w);
     setCompleted(await fetchCompletedLevels(w));
     setBalance(START_BALANCE);
+    setTotalCreditAtto(null);
     setBanner("🎮 Back in Demo Mode - no wallet needed.");
   }, []);
 
@@ -379,9 +406,20 @@ export default function App() {
                 >
                   {wallet.mode === "onchain" ? "⛓ On-chain" : "🎮 Demo Mode"}
                 </span>
-                <span className="ml-2 font-mono text-sm text-ink">
-                  {displayBalance.toFixed(1)} <span className="text-muted">GEN</span>
+                <span className="ml-2 font-mono text-sm text-ink" title="Wallet native GEN (not a contract total)">
+                  {displayBalance.toFixed(1)} <span className="text-muted">GEN in wallet</span>
                 </span>
+                {/* PER-PLAYER cumulative credit, labelled as such and only ever shown
+                    for a connected wallet. Never presented as a single level prize. */}
+                {wallet.mode === "onchain" && totalCreditAtto != null ? (
+                  <span
+                    className="ml-2 font-mono text-xs text-muted"
+                    data-testid="total-credited"
+                    title="All-time GEN credited to this address by the contract (every level combined)"
+                  >
+                    · {formatAtto(totalCreditAtto)} GEN total credited to your address
+                  </span>
+                ) : null}
               </div>
               {wallet.mode === "demo" ? (
                 <motion.button
@@ -483,6 +521,7 @@ export default function App() {
             <GateModal
               key={`${currentLevel}-${gateNonce}`}
               open={modalOpen}
+              level={currentLevel}
               city={city}
               weather={weather}
               risk={risk}

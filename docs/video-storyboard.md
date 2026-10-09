@@ -54,16 +54,16 @@ Or drive exact per-shot timings with a manifest (`SECONDS  path`, one per line) 
 
 | # | Time | Shot | Caption |
 |---|------|------|---------|
-| 1 | 0:00–0:08 | Title + full field (grass, river, wall, purple gate, green victory zone) | WeatherGate: a 2D RPG where real weather gates your progress |
-| 2 | 0:08–0:16 | Hero sliding around under WASD/arrow control | Move your hero with WASD or the arrow keys |
-| 3 | 0:16–0:24 | Bumping into the river and the tree wall (they block) | A river and a wall block the path to the Magic Gate |
-| 4 | 0:24–0:32 | Touch the gate → game pauses, modal scales in | Touch the gate - the game pauses and the AI challenge opens |
-| 5 | 0:32–0:41 | Close-up of the modal's live weather + risk multiplier badge | Live Open-Meteo weather sets the risk multiplier |
-| 6 | 0:41–0:50 | Click an Action Card → it fills the custom input | Choose an Action Card, or type your own move |
-| 7 | 0:50–0:58 | Judging state: pulsing 🛰️ "AI Validators are analyzing…" | AI Validators are judging your action against the weather |
-| 8 | 0:58–1:07 | PASS → confetti + balance count-up + gate turns green + reach ★ Victory | Pass - confetti, a GEN reward, and the gate swings open |
-| 9 | 1:07–1:15 | FAIL → modal shakes red, gate stays locked | Reckless in bad weather? The verdict fails and the gate stays locked |
-| 10 | 1:15–1:24 | Outro: logo / GitHub / StudioNet address | Built on GenLayer - trustless, weather-driven adjudication |
+| 1 | 0:00-0:08 | Title + full field (grass, river, wall, purple gate, green victory zone) | WeatherGate: a 2D RPG where real weather gates your progress |
+| 2 | 0:08-0:16 | Hero sliding around under WASD/arrow control | Move your hero with WASD or the arrow keys |
+| 3 | 0:16-0:24 | Bumping into the river and the tree wall (they block) | A river and a wall block the path to the Magic Gate |
+| 4 | 0:24-0:32 | Touch the gate → game pauses, modal scales in | Touch the gate - the game pauses and the AI challenge opens |
+| 5 | 0:32-0:41 | Close-up of the modal's live weather + risk multiplier badge | Live Open-Meteo weather sets the risk multiplier |
+| 6 | 0:41-0:50 | Click an Action Card → it fills the custom input | Choose an Action Card, or type your own move |
+| 7 | 0:50-0:58 | Judging state: pulsing 🛰️ "AI Validators are analyzing…" | AI Validators are judging your action against the weather |
+| 8 | 0:58-1:07 | PASS → confetti + balance count-up + gate turns green + reach ★ Victory | Pass - confetti, a GEN reward, and the gate swings open |
+| 9 | 1:07-1:15 | FAIL → modal shakes red, gate stays locked | Reckless in bad weather? The verdict fails and the gate stays locked |
+| 10 | 1:15-1:24 | Outro: logo / GitHub / StudioNet address | Built on GenLayer - trustless, weather-driven adjudication |
 
 > The demo runs in **demo mode** by default, so no wallet/gas is needed for recording; every multiplier
-> shown is derived from real live weather. Keep the pace ~1 beat per 8–9s for an ~84s cut.
+> shown is derived from real live weather. Keep the pace ~1 beat per 8-9s for an ~84s cut.

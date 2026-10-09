@@ -27,8 +27,8 @@ export type WeatherKind =
   | "storm";
 
 export interface RiskAnalysis {
-  multiplier: number; // 1.0 – 5.0
-  multiplierX100: number; // 100 – 500
+  multiplier: number; // 1.0 to 5.0
+  multiplierX100: number; // 100 to 500 (integer hundredths, contract MULT_MIN..MULT_MAX)
   risk_tier: RiskTier;
   reasoning: string;
 }
@@ -69,14 +69,19 @@ export interface WalletState {
   connecting: boolean;
 }
 
-/** Mirrors the contract's campaign_progress(account) view. */
+/**
+ * Mirrors the contract's campaign_progress(account) view. PER-PLAYER only: the
+ * contract no longer returns the contract-wide payout counter here, so the only
+ * total in this shape is the all-time credit for THIS address.
+ */
 export interface CampaignProgress {
   account: string;
   completed: number[];
   completedCount: number;
   nextLevel: number;
   maxLevel: number;
-  campaignPayoutAtto: bigint;
+  /** PER-PLAYER cumulative credit ledger (get_credit / get_total_credit), in atto. */
+  totalCreditAtto: bigint;
 }
 
 /** On-chain GEN balance for the connected account. */
@@ -113,6 +118,24 @@ export interface LevelOutcome {
   payoutStatus?: "none" | "credit" | "pending" | "sent" | "failed";
   /** Triggered transfer tx hash when the platform emits one (empty for credit path). */
   payoutTxHash?: string;
-  /** On-chain credit recorded for the player after a passing run, in GEN. */
-  creditGen?: number;
+  /** PER-LEVEL payout the contract stored in get_level_payout(account, level), GEN.
+   *  This is the number the settlement screen shows as "this level paid". */
+  levelPayoutGen?: number;
+  /** PER-LEVEL payout in atto (exact, for the balance-delta cross-check). */
+  levelPayoutAtto?: bigint;
+  /** PER-PLAYER cumulative credit after this run (get_total_credit), GEN. Displayed
+   *  only under an explicit "total credited to your address" label. */
+  totalCreditGen?: number;
+  /** PER-PLAYER cumulative credit in atto. */
+  totalCreditAtto?: bigint;
+  /** Wallet native GEN immediately before / after the settlement (WALLET-NATIVE). */
+  nativeBeforeGen?: number;
+  nativeAfterGen?: number;
+  /** Same values in atto, so the delta proof never goes through a float. */
+  nativeBeforeAtto?: bigint;
+  nativeAfterAtto?: bigint;
+  /** True when the measured native delta equals levelPayoutAtto exactly. */
+  nativeDeltaMatches?: boolean;
+  /** The on-chain objective for this level (mirrors LEVEL_OBJECTIVE in the contract). */
+  objective?: string;
 }

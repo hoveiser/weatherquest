@@ -30,8 +30,20 @@ export function countdown(msLeft: number): string {
   return `${sec}s`;
 }
 
+/**
+ * GEN -> display string. TRUNCATES at `digits` decimals instead of rounding, so a
+ * rendered amount can never be larger than the amount actually paid (toFixed() is
+ * what let a 0.1445 GEN figure print as "0.15"). Negative input floors at 0, which
+ * matches formatAtto() in lib/payout.ts, and the tiny epsilon only absorbs float
+ * representation noise (0.29 * 100 === 28.999999999999996) so an exact step is not
+ * displayed one digit low. On-chain amounts must go through formatAtto(atto) for
+ * exactness; this helper takes a JS number and is for the legacy demo surfaces.
+ */
 export function formatGen(gen: number, digits = 2): string {
-  return `${gen.toFixed(digits)} GEN`;
+  const value = Number.isFinite(gen) && gen > 0 ? gen : 0;
+  const factor = 10 ** digits;
+  const truncated = Math.trunc(value * factor + 1e-9) / factor;
+  return `${truncated.toFixed(digits)} GEN`;
 }
 
 /** Map a contract error / thrown message to a friendly, user-facing string. */

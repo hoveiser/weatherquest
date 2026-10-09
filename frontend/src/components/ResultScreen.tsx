@@ -1,3 +1,8 @@
+// LEGACY MARKETPLACE SCREEN (class: not-payable). This component is not part of the
+// shipped game build (main.tsx mounts App.tsx only, verified against the built
+// bundle), and its result can only come from lib/contract.submitAction, which runs
+// a local heuristic and throws in on-chain mode. Nothing shown here was ever settled
+// by validators, so the amount is labelled as a simulation, never as a payout.
 import { motion } from "framer-motion";
 import { Trophy, Skull, Coins, ExternalLink, Sparkles } from "lucide-react";
 import type { ActionResult } from "../types";
@@ -46,12 +51,20 @@ export default function ResultScreen({ result, onClose }: Props) {
         <RiskMeter multiplier={risk.multiplier} tier={risk.risk_tier} compact />
         <div className="flex items-center justify-between pt-1">
           <span className="flex items-center gap-2 text-sm text-muted">
-            <Coins size={15} className="text-warning" aria-hidden /> Payout
+            <Coins size={15} className="text-warning" aria-hidden /> Simulated reward
           </span>
-          <span className={clsx("text-lg font-extrabold", success ? "text-success" : "text-muted")}>
+          <span
+            className={clsx("text-lg font-extrabold", success ? "text-success" : "text-muted")}
+            data-testid="demo-payout"
+            title="Local demo heuristic only. No validator settled this and no GEN was transferred."
+          >
             {formatGen(payoutGen)}
           </span>
         </div>
+        <p className="text-[11px] leading-snug text-muted">
+          Demo heuristic, not an on-chain payout. The campaign levels are what settle on
+          StudioNet.
+        </p>
       </div>
 
       <div className="rounded-card border border-white/10 bg-white/5 p-4">
