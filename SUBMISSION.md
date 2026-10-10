@@ -204,3 +204,13 @@ https://github.com/hoveiser/weatherquest
   foregrounded browser tab** - `requestAnimationFrame` pauses when a tab is backgrounded (standard for
   canvas games). They were confirmed logic-complete via DOM playtest and render normally when the tab is
   visible.
+
+## Reply to the reviewer (portal text, 947 chars)
+
+Paste as-is. `python scripts/wq_portal_reply.py` re-counts it and refuses to write
+`docs/portal-reply.txt` if it ever exceeds the portal's 950-character cap; the contract
+address is a separate portal field, so it is deliberately absent here. The hash it quotes,
+`b36e104`, is the commit that carries the contract, the frontend and the evidence; the
+commits after it are documentation only.
+
+> Layered verification: a deterministic pre-filter reverts obvious attacks before LLM work; one LLM call returns a rubric (on_topic, concrete_action, manipulation, safe); the contract derives success, ignoring any model-supplied success key; per-level LEVEL_OBJECTIVE fails irrelevant text as off-topic and gibberish even at Low. Corpus: 34 attacks x2 on fresh wallets, 18 classes. 68 attack runs, 0 paid, 0 levels conquered (42 filtered, 26 rubric-refused); 14 legit runs accepted, 0 false rejects; 85 txs all MAJORITY_AGREE, median 23.9s to ACCEPTED. Payout display fixed at the root: the settlement line shows get_level_payout, the cumulative total is labeled separately, both checked live against the native delta. 238 direct tests pass; new: pre-filter table, 64-row derived-success table, ignored model keys, [LLM_ERROR] fail-closed, per-level payout view. Residual: the rubric still ends in an LLM answer; hardened, not proof. Commit b36e104.
