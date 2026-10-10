@@ -5,7 +5,13 @@ lives in a dynamically-imported (code-split) chunk, not the entry. So this
 crawls every asset js referenced by index.html OR by any fetched js (bounded),
 greps each for the NEW and OLD addresses, and reports per-asset hits. Read-only
 GETs of public static files. No secrets.
+
+Each asset is also hashed (sha256 over the RAW bytes) so a hit can be tied back to
+a local `npm run build` artifact byte-for-byte. Note the character count of a
+decoded body is smaller than its byte count when a chunk contains multi-byte
+glyphs, so both are printed and the hash is the authority.
 """
+import hashlib
 import os
 import re
 import urllib.request
@@ -27,11 +33,13 @@ UA = {"User-Agent": "wq-live-bundle-check"}
 
 
 def get(url):
+    """Return (status, raw_bytes_or_error_text, decoded_text)."""
     try:
         with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=30) as r:
-            return r.status, r.read().decode("utf-8", "ignore")
+            raw = r.read()
+            return r.status, raw, raw.decode("utf-8", "ignore")
     except Exception as e:
-        return None, "ERR " + type(e).__name__ + " " + str(e)[:80]
+        return None, b"", "ERR " + type(e).__name__ + " " + str(e)[:80]
 
 
 def resolve(asset):
@@ -39,7 +47,7 @@ def resolve(asset):
     return SITE + a
 
 
-status, html = get(SITE + "index.html")
+status, _raw, html = get(SITE + "index.html")
 print("index.html status:", status)
 js = set(re.findall(r"assets/[A-Za-z0-9_-]+\.js", html))
 print("assets referenced by index:", sorted(js))
@@ -56,14 +64,15 @@ while queue and guard < 40:
         continue
     fetched.add(name)
     url = resolve(name)
-    st, body = get(url)
+    st, raw, body = get(url)
     if st != 200:
         print("  FETCH FAIL", url, body)
         continue
     has_new = NEW in body or NEW.lower() in body.lower()
     present_old = [o for o in OLD_ADDRESSES if o in body or o.lower() in body.lower()]
-    print("  %-40s status=%s bytes=%6d NEW=%s OLD=%s" % (
-        name, st, len(body), has_new, present_old or False))
+    print("  %-40s status=%s raw_bytes=%6d chars=%6d sha256=%s NEW=%s OLD=%s" % (
+        name, st, len(raw), len(body), hashlib.sha256(raw).hexdigest()[:16],
+        has_new, present_old or False))
     if has_new:
         new_hits.append(name)
     if present_old:

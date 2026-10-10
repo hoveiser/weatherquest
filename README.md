@@ -465,9 +465,17 @@ verdict box and a node-measured native delta of exactly 0, then the legitimate a
 `docs/c4-*-2-verdict.png`); SDK side `VERDICT: PASS` (`docs/c4-sdk-verify.json`,
 `docs/c4-sdk-verify.txt`). The published Pages bundle is checked separately by
 `python scripts/wq_live_bundle.py`, which crawls the live site and asserts this address is present
-and every previous deployment is absent (`docs/live-bundle-prepush.txt` records the pre-push state:
-the site still served the superseded `0x6028EB22...` build, which is what the next CI run
-replaces). One wording imprecision is worth knowing before you read a
+and every previous deployment is absent. After the push that carried this round it passes against
+the published site: CI ran green (`https://github.com/hoveiser/weatherquest/actions/runs/38020058932`)
+and the Pages deploy published it (`https://github.com/hoveiser/weatherquest/actions/runs/38020058953`),
+the live entry chunk is `assets/index-DkkQx3RP.js` (505,660 bytes, sha256 prefix `ece00e486e7da869`),
+byte-identical to the local build the ladder ran against, it carries this address, and none of the
+five previous deployments appear in any crawled chunk (`docs/live-bundle-postpush.txt`, Node twin
+`docs/live-bundle-postpush-js.txt`; `docs/live-bundle-prepush.txt` keeps the pre-push state, where
+the site still served the superseded `0x6028EB22...` build). A fresh load of the live site logs 0
+console errors and 0 warnings with the demo-mode notice rendering
+(`tools/pwtest/load.mjs` -> `docs/ui-load-report.json`, screenshot `docs/ui-1-landing.png`).
+One wording imprecision is worth knowing before you read a
 screenshot: a deterministic layer-1 revert and an AI-rubric failure render with the same
 `❌ Quest Failed · the AI judgment failed Level N` heading, because StudioNet's outer receipt
 carries `status 0x1` for a reverted contract call so the app's "Action rejected by ... contract

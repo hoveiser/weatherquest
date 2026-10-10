@@ -312,3 +312,45 @@ throwaway key (generated in-test, never printed, never from `.env`). Screenshots
   multiplier 1.00) and the 10/10 boundary unit tests.
 - Honest limitation unchanged: StudioNet cannot move native GEN to the EOA, so the recipient
   "balance change" measured here is the on-chain per-address credit, not an EOA native delta.
+  **SUPERSEDED (later round):** that conclusion was wrong, and the line quoted above ("StudioNet
+  cannot send native GEN to the wallet") is historical. The blocker was the API, not the network:
+  `gl.get_contract_at(eoa).emit_transfer(...)` no-ops against an address with no intelligent
+  contract, while a `@gl.evm.contract_interface` recipient with `value=` does move native GEN.
+  Recipient EOA balances are now credited on StudioNet and the measured native delta equals the
+  payout (README §11, `docs/final_verify.json`).
+
+## Round: layered action verification + per-level payout display + adversarial corpus (current contract `0x8b317B94...`)
+
+Reviewer finding that started this round: a prompt-injection action was paid 0.1 GEN on
+`0x6028EB22...` (tx `0x2ee4ec3a...`), and the UI could show a cumulative credit as if it were one
+level's prize.
+
+- Contract: `_prefilter_action` (deterministic, reverts `[EXPECTED]` before any network or LLM
+  work), a 4-key rubric from ONE LLM call with `success` derived on-chain (a model-supplied
+  `success` is ignored), `LEVEL_OBJECTIVE` for levels 1-10, a hardened prompt (trusted instructions
+  first, the action delimited as data, three short adversarial examples), plus the money views
+  `get_level_payout` / `get_total_credit` / `get_global_stats`, and a `campaign_progress` that no
+  longer returns a contract-wide counter. `genvm-lint check`: ok, 18 methods (12 view, 6 write).
+- Deploy: `0x8b317B94AF764e9de587805d264CbBea59Ce3aE2`, deploy tx `0x46acbc55...48dedb` FINALIZED /
+  MAJORITY_AGREE in 48.5 s, house funded 30 GEN via `0x0056cd40...23b3a6` (read back 30.0000 GEN).
+- Frontend: `lib/payout.ts` labels every GEN figure by class; the settlement screen shows THIS
+  level's payout, the native balance before/after, and a separately labelled total. 238 direct
+  tests + 21 frontend unit tests pass; `tsc --noEmit` and `vite build` exit 0.
+- Adversarial corpus (`tests/adversarial_corpus.json`: 34 attacks over 18 classes, 12 legitimate
+  controls): 68 attack runs on two fresh wallets paid 0 and conquered 0 levels (42 stopped by the
+  pre-filter, 26 refused by the rubric); 14 legitimate runs all accepted, 0 false rejects; all 85
+  txs FINALIZED / MAJORITY_AGREE / 5 votes; time to ACCEPTED min 1.2 s, median 23.9 s, max 48.3 s;
+  one multi-round outlier (`p1.a32`, 4 rounds, still refused).
+- Ledger audit `scripts/wq_corpus_ledger_audit.py`: each corpus wallet's credit equals the sum of
+  its observed deltas and its native balance equals 1 GEN funding plus that total; the 7
+  attack-only wallets hold 0 credit. 4.625 GEN credited overall, all of it legitimate.
+  `VERDICT: PASS`.
+- Live UI: the levels 1-3 per-level payout proof (wallet `0xb71860c6...`) and the injection ladder
+  (wallet `0xd43a94fa...`), each re-verified app-free through the SDK, screenshots under `docs/`.
+- Publish: CI run 38020058932 and Pages run 38020058953 both green; the live entry chunk
+  `assets/index-DkkQx3RP.js` (sha256 prefix `ece00e486e7da869`) carries the new address and none of
+  the five previous deployments, and is byte-identical to the local build the live-UI proofs ran.
+- Two harness bugs surfaced while writing the audits and fixed here:
+  `scripts/wq_round.py::campaign_payout` read a contract-wide key that `campaign_progress` no
+  longer returns (so it silently returned 0), and the corpus summary's `by_class` relied on a loop
+  variable leaking out of a print loop. No recorded payout claim depended on either.
